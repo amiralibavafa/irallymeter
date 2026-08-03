@@ -1,0 +1,337 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/formatters.dart';
+import '../../../core/widgets/app_clock.dart';
+import '../../route_log/domain/route_session.dart';
+import '../../route_log/presentation/providers/gpx_providers.dart';
+import '../../route_log/presentation/providers/route_log_providers.dart';
+import '../../trip/domain/calibration.dart';
+import '../../trip/presentation/providers/trip_providers.dart';
+import 'providers/settings_providers.dart';
+
+class SettingsScreen extends ConsumerWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(settingsProvider);
+    final ctrl = ref.read(settingsProvider.notifier);
+
+    return Scaffold(
+      backgroundColor: AppColors.base,
+      appBar: AppBar(
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: const [AppClock(), SizedBox(width: 12), Text('SETTINGS')],
+        ),
+        backgroundColor: AppColors.base,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const _SectionTitle('DISPLAY'),
+          _SwitchRow(
+            label: 'Night mode',
+            value: settings.isNight,
+            onChanged: (_) => ctrl.toggleDisplayMode(),
+          ),
+          _ChoiceRow(
+            label: 'Speed unit',
+            value: settings.speedUnit.label,
+            onTap: ctrl.toggleSpeedUnit,
+          ),
+          const _SectionTitle('COMPASS'),
+          _SwitchRow(
+            label: 'Use true north',
+            value: settings.useTrueNorth,
+            onChanged: (_) => ctrl.toggleTrueNorth(),
+          ),
+          const _SectionTitle('CALIBRATION'),
+          _CalibrationCard(),
+          const _SectionTitle('TRIP'),
+          _DangerRow(
+            label: 'Reset odometer',
+            onTap: () => ref.read(tripProvider.notifier).resetOdometer(),
+          ),
+          const _SectionTitle('ROUTE SESSIONS'),
+          _SessionsSection(),
+        ],
+      ),
+    );
+  }
+}
+
+class _CalibrationCard extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final factor = ref.watch(calibrationProvider);
+    final ctrl = ref.read(settingsProvider.notifier);
+    final err = Calibration.percentError(factor);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(factor.toStringAsFixed(4),
+                  style: const TextStyle(
+                      color: AppColors.textPrimary, fontSize: 34, fontWeight: FontWeight.w700)),
+              Text('${err >= 0 ? '+' : ''}${err.toStringAsFixed(2)}%',
+                  style: TextStyle(color: err.abs() < 0.01 ? AppColors.ok : AppColors.warn)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _Step('-1%', () => ctrl.nudgeCalibration(-0.01)),
+              _Step('-0.1%', () => ctrl.nudgeCalibration(-0.001)),
+              _Step('+0.1%', () => ctrl.nudgeCalibration(0.001)),
+              _Step('+1%', () => ctrl.nudgeCalibration(0.01)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () => _calibrateByReference(context, ref),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.accent,
+                side: const BorderSide(color: AppColors.accent),
+              ),
+              child: const Text('CALIBRATE FROM KNOWN DISTANCE'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Drive a known distance, then enter the reference + what the meter read.
+  Future<void> _calibrateByReference(BuildContext context, WidgetRef ref) async {
+    final refCtl = TextEditingController();
+    final measCtl = TextEditingController(
+      text: (ref.read(tripAProvider) / 1000).toStringAsFixed(3),
+    );
+
+    final result = await showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Calibrate', style: TextStyle(color: AppColors.textPrimary)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: refCtl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Reference distance (km)'),
+            ),
+            TextField(
+              controller: measCtl,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Meter measured (km)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
+          TextButton(
+            onPressed: () {
+              final refKm = double.tryParse(refCtl.text);
+              final measKm = double.tryParse(measCtl.text);
+              if (refKm == null || measKm == null) {
+                Navigator.pop(context);
+                return;
+              }
+              final f = Calibration.factorFromReference(
+                measuredMeters: measKm * 1000,
+                referenceMeters: refKm * 1000,
+                current: ref.read(calibrationProvider),
+              );
+              Navigator.pop(context, f);
+            },
+            child: const Text('APPLY'),
+          ),
+        ],
+      ),
+    );
+    if (result != null) {
+      ref.read(settingsProvider.notifier).setCalibration(result);
+    }
+  }
+}
+
+class _Step extends StatelessWidget {
+  const _Step(this.label, this.onTap);
+  final String label;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: OutlinedButton(
+          onPressed: onTap,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.textPrimary,
+            side: const BorderSide(color: AppColors.divider),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+          child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+        ),
+      ),
+    );
+  }
+}
+
+class _SessionsSection extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sessions = ref.watch(savedSessionsProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        OutlinedButton.icon(
+          onPressed: () async {
+            final imported = await ref.read(gpxImportProvider)();
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(imported == null ? 'Import cancelled' : 'Imported ${imported.name}')),
+              );
+            }
+          },
+          icon: const Icon(Icons.upload_file),
+          label: const Text('IMPORT GPX'),
+          style: OutlinedButton.styleFrom(foregroundColor: AppColors.info, side: const BorderSide(color: AppColors.info)),
+        ),
+        const SizedBox(height: 8),
+        if (sessions.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: Text('No saved sessions', style: TextStyle(color: AppColors.textDim))),
+          )
+        else
+          ...sessions.map((s) => _SessionTile(session: s)),
+      ],
+    );
+  }
+}
+
+class _SessionTile extends ConsumerWidget {
+  const _SessionTile({required this.session});
+  final RouteSession session;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListTile(
+        title: Text(session.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
+        subtitle: Text(
+          '${session.points.length} pts · ${Formatters.distance(session.distanceMeters, metric: true)}',
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.ios_share, color: AppColors.info),
+              onPressed: () => ref.read(gpxFileServiceProvider).exportAndShare(session),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+              onPressed: () async {
+                await ref.read(routeLogRepositoryProvider).delete(session.id);
+                // Trigger list refresh.
+                ref.invalidate(savedSessionsProvider);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 22, 4, 10),
+        child: Text(text,
+            style: const TextStyle(
+                color: AppColors.accent, fontWeight: FontWeight.w800, letterSpacing: 2, fontSize: 13)),
+      );
+}
+
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({required this.label, required this.value, required this.onChanged});
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
+      child: SwitchListTile(
+        title: Text(label, style: const TextStyle(color: AppColors.textPrimary)),
+        value: value,
+        activeColor: AppColors.accent,
+        onChanged: onChanged,
+      ),
+    );
+  }
+}
+
+class _ChoiceRow extends StatelessWidget {
+  const _ChoiceRow({required this.label, required this.value, required this.onTap});
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
+      child: ListTile(
+        title: Text(label, style: const TextStyle(color: AppColors.textPrimary)),
+        trailing: Text(value, style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700)),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _DangerRow extends StatelessWidget {
+  const _DangerRow({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
+      child: ListTile(
+        title: Text(label, style: const TextStyle(color: AppColors.danger)),
+        trailing: const Icon(Icons.restart_alt, color: AppColors.danger),
+        onTap: onTap,
+      ),
+    );
+  }
+}
