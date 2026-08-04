@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_clock.dart';
+import '../../distance/presentation/providers/distance_providers.dart';
 import '../../replay/presentation/simulation_provider.dart';
 import '../../route_log/domain/route_session.dart';
 import '../../route_log/presentation/providers/gpx_providers.dart';
@@ -56,6 +58,15 @@ class SettingsScreen extends ConsumerWidget {
           _DangerRow(
             label: 'Reset odometer',
             onTap: () => ref.read(tripProvider.notifier).resetOdometer(),
+          ),
+          // SPEC-v2 §15.3: the automatic record that replaced the manual
+          // TUNNEL START / END buttons. Not debug — this is the co-driver's
+          // read-back of every stretch the app had to estimate.
+          const _SectionTitle('ESTIMATED SECTIONS'),
+          _ChoiceRow(
+            label: 'Section log',
+            value: '${ref.watch(estimatedSectionsProvider).length} recorded',
+            onTap: () => context.push('/sections'),
           ),
           const _SectionTitle('ROUTE SESSIONS'),
           _SessionsSection(),

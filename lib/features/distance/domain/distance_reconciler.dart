@@ -91,6 +91,19 @@ class DistanceReconciler {
     return take;
   }
 
+  /// Pay out everything still owed AT ONCE and clear.
+  ///
+  /// Used when the leg boundary moves under us — a trip reset. The outstanding
+  /// balance is distance the vehicle ALREADY COVERED but has not been shown
+  /// yet, so it belongs to the leg that is ending, not the one beginning. §16.1's
+  /// "no visible jump" rule does not apply across a reset: the counter the
+  /// driver is watching is about to be zeroed anyway.
+  double settle() {
+    final owed = _remaining;
+    reset();
+    return owed.isFinite && owed > 0 ? owed : 0.0;
+  }
+
   void reset() {
     _remaining = 0;
     _rate = 0;

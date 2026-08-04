@@ -464,6 +464,24 @@ class DistanceEngine {
     onState(next);
   }
 
+  /// Pay out any correction still owed, immediately, and report the metres.
+  ///
+  /// Called when the driver resets a trip counter. Without this the reconciler
+  /// keeps drip-feeding the old leg's distance into the NEW leg: measured at up
+  /// to 715 m in `phase3_completeness_test`, which on a rally is the difference
+  /// between "turn after 3 km" landing on the right junction and the wrong one.
+  ///
+  /// Returns the metres rather than emitting them, deliberately. The delta
+  /// stream is asynchronous, so emitting here and zeroing the counter in the
+  /// caller would race — the delta would land AFTER the reset and reintroduce
+  /// exactly the bug being fixed. The caller applies these metres to the
+  /// counters it is not clearing.
+  double settleReconciliation(DateTime now) {
+    final owed = _reconciler.settle();
+    if (_state.reconciling) _publish(_state.copyWith(reconciling: false));
+    return owed;
+  }
+
   /// Start a fresh leg — clears every source's accumulated state.
   void reset() {
     _gps.reset();

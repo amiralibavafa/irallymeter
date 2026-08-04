@@ -9,6 +9,7 @@ import '../../data/sensors_motion_service.dart';
 import '../../domain/distance_delta.dart';
 import '../../domain/distance_engine.dart';
 import '../../domain/distance_engine_state.dart';
+import '../../domain/estimated_section.dart';
 import '../../domain/measurement_status.dart';
 import '../../domain/motion_repository.dart';
 import '../../../replay/domain/simulated_drive.dart';
@@ -98,11 +99,28 @@ class DistanceEngineController extends Notifier<DistanceEngineState> {
     return DistanceEngineState.initial;
   }
 
+  /// The §15.3 log this engine has accumulated.
+  EstimatedSectionLog get sections => _engine.sections;
+
+  /// See [DistanceEngine.settleReconciliation]. Returns the metres owed so the
+  /// caller can attribute them to the leg that is ENDING.
+  double settleReconciliation() =>
+      _engine.settleReconciliation(DateTime.now());
 }
 
 final distanceEngineProvider =
     NotifierProvider<DistanceEngineController, DistanceEngineState>(
         DistanceEngineController.new);
+
+/// SPEC-v2 §15.3 — every estimated section of this leg, oldest first.
+///
+/// Watches the engine STATE (not the notifier) so the list refreshes when a
+/// section closes: leaving Estimation Mode publishes a state change, and that
+/// is exactly the moment a new record appears.
+final estimatedSectionsProvider = Provider<List<EstimatedSection>>((ref) {
+  ref.watch(distanceEngineProvider);
+  return ref.watch(distanceEngineProvider.notifier).sections.sections;
+});
 
 /// The stream of distance increments the trip computer and average-speed
 /// integrator consume instead of raw GPS.

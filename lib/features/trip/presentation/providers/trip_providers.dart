@@ -86,14 +86,35 @@ class TripController extends Notifier<TripState> {
   // ---- User actions (persist immediately — these are deliberate edits) ----
 
   void resetTrip(TripCounter counter) {
-    state = counter == TripCounter.a
-        ? state.copyWith(tripA: 0)
-        : state.copyWith(tripB: 0);
+    // Settle any outstanding tunnel correction FIRST. Those metres were covered
+    // before this reset, so they belong to the leg that is ending — left in the
+    // reconciler they would drip into the new leg over the next 15-60 s and
+    // silently inflate it by up to several hundred metres.
+    final owed = _settleOwedMetres();
+    state = state.copyWith(
+      tripA: counter == TripCounter.a ? 0 : state.tripA + owed,
+      tripB: counter == TripCounter.b ? 0 : state.tripB + owed,
+      odometer: state.odometer + owed,
+    );
     _persistNow();
   }
 
+  /// Flush the reconciler and return the calibrated metres it owed.
+  double _settleOwedMetres() {
+    final raw = ref.read(distanceEngineProvider.notifier).settleReconciliation();
+    if (!raw.isFinite || raw <= 0) return 0;
+    return raw * ref.read(calibrationProvider);
+  }
+
   void resetOdometer() {
-    state = state.copyWith(odometer: 0);
+    // Same reasoning as resetTrip: flush first so the trips still receive what
+    // was already covered, then zero the odometer.
+    final owed = _settleOwedMetres();
+    state = state.copyWith(
+      tripA: state.tripA + owed,
+      tripB: state.tripB + owed,
+      odometer: 0,
+    );
     _persistNow();
   }
 

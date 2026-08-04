@@ -2,6 +2,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/dashboard/presentation/dashboard_screen.dart';
 import '../../features/map/presentation/map_screen.dart';
+import '../../features/distance/presentation/section_log_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../features/stage_timer/presentation/stage_timer_screen.dart';
 
@@ -17,6 +18,9 @@ class AppRouter {
       GoRoute(path: '/map', builder: (context, state) => const MapScreen()),
       GoRoute(path: '/timer', builder: (context, state) => const StageTimerScreen()),
       GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
+      GoRoute(
+          path: '/sections',
+          builder: (context, state) => const SectionLogScreen()),
     ],
   );
 }
