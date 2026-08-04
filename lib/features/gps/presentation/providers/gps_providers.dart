@@ -7,6 +7,7 @@ import '../../../../core/utils/geo_math.dart';
 import '../../data/geolocator_gps_service.dart';
 import '../../domain/gps_repository.dart';
 import '../../domain/gps_sample.dart';
+import '../../domain/gps_health_stats.dart';
 import '../../domain/gps_state.dart';
 import '../../../replay/domain/simulated_drive.dart';
 import '../../../replay/presentation/simulation_provider.dart';
@@ -37,6 +38,17 @@ final rawGpsStreamProvider = StreamProvider<GpsSample>((ref) {
   return ref.watch(gpsRepositoryProvider).positionStream();
 });
 
+/// Live §19 row 6 / stream-health measurement, folded from the raw stream.
+///
+/// Exists so a road test reports NUMBERS rather than impressions: "unmeasured"
+/// was never the same as "unmeasurable".
+/// NOTE: fed from [gpsStateProvider], not by listening here. A Provider is
+/// created lazily on first read, so a listener declared inside this body would
+/// only start recording when someone OPENED the diagnostics screen — which is
+/// exactly the wrong time. `gpsStateProvider` is alive for as long as the
+/// dashboard is, so the stats cover the whole session.
+final gpsHealthProvider = Provider<GpsHealthStats>((ref) => GpsHealthStats());
+
 /// Processed display state: smoothed speed + heading + quality.
 ///
 /// Derived from [rawGpsStreamProvider] rather than re-subscribing to the
@@ -51,9 +63,12 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
   GpsSample? prev;
   final controller = StreamController<GpsState>();
 
+  final health = ref.read(gpsHealthProvider);
   ref.listen<AsyncValue<GpsSample>>(rawGpsStreamProvider, (_, next) {
     final s = next.valueOrNull;
     if (s == null || controller.isClosed) return;
+    // §19 row 6 / stream-health measurement for the road test.
+    health.add(s, DateTime.now());
 
     // Prefer the GPS-reported (Doppler) speed — it's the most accurate. Fall
     // back to position-delta speed when the platform reports none: the Android

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_clock.dart';
+import '../../gps/presentation/providers/gps_providers.dart';
 import '../domain/estimated_section.dart';
 import 'providers/distance_providers.dart';
 
@@ -43,17 +44,92 @@ class SectionLogScreen extends ConsumerWidget {
           ],
         ),
       ),
-      body: sections.isEmpty
-          ? const _Empty()
-          : ListView.builder(
-              padding: const EdgeInsets.all(12),
-              // Newest first: the section a co-driver questions is the one they
-              // just drove through.
-              itemCount: sections.length,
-              itemBuilder: (_, i) =>
-                  _SectionCard(section: sections[sections.length - 1 - i],
-                      index: sections.length - i),
-            ),
+      body: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          const _HealthPanel(),
+          const SizedBox(height: 8),
+          if (sections.isEmpty)
+            const _Empty()
+          else
+            // Newest first: the section a co-driver questions is the one they
+            // just drove through.
+            for (var i = sections.length - 1; i >= 0; i--)
+              _SectionCard(section: sections[i], index: i + 1),
+        ],
+      ),
+    );
+  }
+}
+
+/// The numbers a road test has to report. §19 row 6 and the [3.15]
+/// stream-health guarantee were both marked "cannot be verified" only because
+/// nothing was measuring them.
+class _HealthPanel extends ConsumerWidget {
+  const _HealthPanel();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final h = ref.watch(gpsHealthProvider);
+    final hz = h.sustainedHz;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color: h.meetsRow6 ? AppColors.ok : AppColors.warn, width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Text('GNSS HEALTH',
+                style: TextStyle(
+                    color: AppColors.accent,
+                    fontSize: 11,
+                    letterSpacing: 1.2,
+                    fontWeight: FontWeight.bold)),
+            const Spacer(),
+            Text(h.meetsRow6 ? '§19 row 6 PASS' : '§19 row 6 FAIL',
+                style: TextStyle(
+                    color: h.meetsRow6 ? AppColors.ok : AppColors.warn,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold)),
+          ]),
+          const SizedBox(height: 10),
+          Row(children: [
+            _Field(
+                label: 'SUSTAINED',
+                value: '${hz.toStringAsFixed(2)} Hz',
+                hint: 'target >= 1.00'),
+            _Field(label: 'FIXES', value: '${h.fixes}'),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            _Field(
+                label: 'ACCURACY',
+                value: '${h.meanAccuracyM.toStringAsFixed(0)} m',
+                hint: '${h.bestAccuracyM.toStringAsFixed(0)}'
+                    '-${h.worstAccuracyM.toStringAsFixed(0)} m'),
+            _Field(
+                label: 'LONGEST GAP',
+                value: Formatters.legTime(h.longestGap),
+                hint: '${h.gapsOver3s} over 3 s'),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            _Field(
+                label: 'STREAM STALLS',
+                value: '${h.stalls}',
+                hint: 'must stay 0, even through tunnels'),
+            _Field(
+                label: 'NO-FIX TICKS',
+                value: '${h.noFixSamples}',
+                hint: 'watchdog heartbeats'),
+          ]),
+        ],
+      ),
     );
   }
 }
