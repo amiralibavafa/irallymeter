@@ -36,13 +36,26 @@ class DistanceReconciler {
   /// Adding while a payout is already in flight simply tops up the balance and
   /// re-derives the rate from the new total, so overlapping tunnels can't
   /// stack up unpaid corrections.
+  /// True while a correction large enough to need the §16.1 slow window is
+  /// being paid out. "Flag the event in the trip log" — this is that flag.
+  bool _large = false;
+  bool get isLarge => _large;
+
   void add(double meters, DateTime now) {
     if (!meters.isFinite || meters < AppConstants.minReconcileMeters) return;
 
     _remaining += meters;
     _lastAt ??= now;
 
-    final windowSec = AppConstants.reconcileWindow.inMilliseconds / 1000.0;
+    // SPEC-v2 §16.1: 15 s normally, 60 s once the residual exceeds 200 m. The
+    // test is on the RUNNING TOTAL, not the increment just added, so two
+    // moderate corrections that stack into a large one are paid out at the
+    // gentle rate rather than sneaking through at the fast one.
+    _large = _remaining > AppConstants.largeReconcileMeters;
+    final window =
+        _large ? AppConstants.largeReconcileWindow : AppConstants.reconcileWindow;
+
+    final windowSec = window.inMilliseconds / 1000.0;
     _rate = math.min(_remaining / windowSec, AppConstants.maxReconcileRateMps);
   }
 
@@ -67,6 +80,7 @@ class DistanceReconciler {
       // Settle exactly, so a float tail can't leave the reconciler half-active.
       _remaining = 0;
       _rate = 0;
+      _large = false;
       _lastAt = null;
     }
     return take;
@@ -75,6 +89,7 @@ class DistanceReconciler {
   void reset() {
     _remaining = 0;
     _rate = 0;
+    _large = false;
     _lastAt = null;
   }
 }

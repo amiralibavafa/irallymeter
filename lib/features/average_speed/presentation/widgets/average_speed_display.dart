@@ -5,6 +5,9 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../dashboard/presentation/widgets/instrument_box.dart';
 import '../../../settings/presentation/providers/settings_providers.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../distance/domain/measurement_status.dart';
+import '../../../distance/presentation/providers/distance_providers.dart';
 import '../providers/average_speed_providers.dart';
 
 /// Average-speed instrument tile. Mirrors a rally trip meter's average readout:
@@ -21,6 +24,15 @@ class AverageSpeedDisplay extends ConsumerWidget {
       averageSpeedMpsProvider.select((mps) => Formatters.speed(mps, unit)),
     );
     final colors = InstrumentColors.of(context);
+    // §5.1: average speed is distance / time, and the distance half may be
+    // estimated — so it is an affected value like the trips and the odometer.
+    final status = ref.watch(measurementStatusProvider);
+    final avgColor = switch (status.state) {
+      MeasurementState.measured => colors.primary,
+      MeasurementState.reconciling => AppColors.info,
+      MeasurementState.estimated =>
+        status.isLowConfidence ? AppColors.danger : AppColors.warn,
+    };
 
     return InstrumentBox(
       label: 'AVG SPEED',
@@ -36,7 +48,7 @@ class AverageSpeedDisplay extends ConsumerWidget {
             style: Theme.of(context)
                 .textTheme
                 .displaySmall
-                ?.copyWith(color: colors.primary),
+                ?.copyWith(color: avgColor),
           ),
           const SizedBox(width: 6),
           Text(

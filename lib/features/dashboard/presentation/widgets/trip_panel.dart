@@ -7,7 +7,10 @@ import '../../../../core/utils/formatters.dart';
 import '../../../settings/presentation/providers/settings_providers.dart';
 import '../../../trip/domain/trip_state.dart';
 import '../../../trip/presentation/providers/trip_providers.dart';
+import '../../../distance/domain/measurement_status.dart';
+import '../../../distance/presentation/providers/distance_providers.dart';
 import 'instrument_box.dart';
+import 'measurement_badge.dart';
 
 /// A single trip counter readout with a large value and a reset on long-press.
 class TripReadout extends ConsumerWidget {
@@ -23,6 +26,17 @@ class TripReadout extends ConsumerWidget {
         : ref.watch(tripBProvider);
     final colors = InstrumentColors.of(context);
     final label = counter == TripCounter.a ? 'TRIP A' : 'TRIP B';
+    final status = ref.watch(measurementStatusProvider);
+
+    // SPEC-v2 §5.1. The trip counters matter most of all here: this is the
+    // number a co-driver reads aloud, so it must never be ambiguous about
+    // whether it was measured or dead-reckoned.
+    final digitColor = switch (status.state) {
+      MeasurementState.measured => colors.primary,
+      MeasurementState.reconciling => AppColors.info,
+      MeasurementState.estimated =>
+        status.isLowConfidence ? AppColors.danger : AppColors.warn,
+    };
 
     return InstrumentBox(
       label: label,
@@ -37,13 +51,17 @@ class TripReadout extends ConsumerWidget {
         children: [
           Text(
             Formatters.trip(meters, metric: metric),
-            style: Theme.of(context).textTheme.displaySmall?.copyWith(color: colors.primary),
+            style: Theme.of(context).textTheme.displaySmall?.copyWith(color: digitColor),
           ),
           const SizedBox(width: 6),
           Text(
             Formatters.tripUnit(metric: metric),
             style: TextStyle(color: colors.secondary, fontSize: 18, fontWeight: FontWeight.w600),
           ),
+          if (status.badge != null) ...[
+            const SizedBox(width: 6),
+            MeasurementBadge(status: status, compact: true),
+          ],
         ],
       ),
     );
@@ -63,12 +81,21 @@ class OdometerReadout extends ConsumerWidget {
     final metric = ref.watch(isMetricProvider);
     final meters = ref.watch(odometerProvider);
     final colors = InstrumentColors.of(context);
+    // §5.1: the odometer integrates the same delta stream as the trips, so it
+    // carries estimated metres too and must say so.
+    final status = ref.watch(measurementStatusProvider);
+    final odoColor = switch (status.state) {
+      MeasurementState.measured => colors.primary,
+      MeasurementState.reconciling => AppColors.info,
+      MeasurementState.estimated =>
+        status.isLowConfidence ? AppColors.danger : AppColors.warn,
+    };
     return InstrumentBox(
       label: 'ODO',
       child: Text(
         Formatters.distance(meters, metric: metric),
         style: TextStyle(
-          color: colors.primary,
+          color: odoColor,
           fontSize: 28,
           fontWeight: FontWeight.w700,
           fontFeatures: const [FontFeature.tabularFigures()],

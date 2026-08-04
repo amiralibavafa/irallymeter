@@ -154,17 +154,7 @@ void main() {
       expect(r.maxReconcileGapMs, lessThanOrEqualTo(15000),
           reason: 'payout took ${r.maxReconcileGapMs} ms; §19 caps a recovery '
               'correction at 15 s');
-    },
-        // FAILS TODAY, BY DESIGN — measured 16750 ms on first run.
-        //
-        // Confirms the D4 analysis in `docs/GAP.md`: it is the RATE CAP that
-        // binds here, not the window. `reconcileWindow` is 5 s, so the window
-        // is not what overran — `maxReconcileRateMps = 3.0`
-        // (`app_constants.dart:108`) stretches the residual past 15 s on its
-        // own. Raising the window to the spec's 15 s alone would not fix this
-        // and would make it worse; the two constants have to be chosen
-        // together, which is why 3.5 owns both.
-        skip: 'unskipped by step 3.5 (§16.1 blending) — see docs/GAP.md D4');
+    });
 
     test('T6 · the full tunnel trace totals the real ground distance', () {
       final r = replay('tunnel_2km.jsonl');

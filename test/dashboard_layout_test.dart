@@ -154,6 +154,9 @@ Future<void> _pumpDashboard(
         // behaviour is covered by gps_system_test; here it is only a colour
         // input to the layout, so pin it.
         gpsDropoutProvider.overrideWith((ref) => Stream<bool>.value(false)),
+        // Same reason: the §5.1 display heartbeat is an unbounded periodic
+        // stream. Pin it so it cannot outlive the tree.
+        displayTickProvider.overrideWith((ref) => Stream<int>.value(0)),
       ],
       child: MaterialApp(
         theme: AppTheme.build(DisplayMode.day),

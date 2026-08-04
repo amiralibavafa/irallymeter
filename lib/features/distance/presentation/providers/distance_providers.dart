@@ -9,6 +9,7 @@ import '../../data/sensors_motion_service.dart';
 import '../../domain/distance_delta.dart';
 import '../../domain/distance_engine.dart';
 import '../../domain/distance_engine_state.dart';
+import '../../domain/measurement_status.dart';
 import '../../domain/motion_repository.dart';
 import '../../domain/motion_sample.dart';
 
@@ -135,4 +136,26 @@ final displaySpeedMpsProvider = Provider<double>((ref) {
     return ref.watch(distanceEngineProvider.select((s) => s.speedMps));
   }
   return ref.watch(speedMpsProvider);
+});
+
+/// 1 Hz heartbeat for display state that depends on ELAPSED TIME rather than on
+/// anything the engine publishes.
+///
+/// Overridable, and it has to be: an unbounded `Stream.periodic` outlives the
+/// widget tree and trips the pending-timer check, which is the same reason
+/// `gpsDropoutProvider` is pinned in `dashboard_layout_test`.
+final displayTickProvider = StreamProvider<int>(
+    (ref) => Stream<int>.periodic(const Duration(seconds: 1), (i) => i));
+
+/// SPEC-v2 §5.1 — whether the numbers on screen are measured or guessed.
+///
+/// Watches [displayTickProvider] as well as the engine, because §12.3's
+/// confidence decay is a function of how long Estimation Mode has been running.
+/// Nothing about the engine's state changes while it coasts, so a provider that
+/// rebuilt only on engine changes would sit on "normal confidence" for three
+/// minutes and never escalate the warning.
+final measurementStatusProvider = Provider<MeasurementStatus>((ref) {
+  final s = ref.watch(distanceEngineProvider);
+  ref.watch(displayTickProvider);
+  return MeasurementStatus.from(s, DateTime.now());
 });

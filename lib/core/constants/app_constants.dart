@@ -144,12 +144,35 @@ class AppConstants {
   /// GPS |dv/dt| below this (m/s²) carries no usable signal for axis learning.
   static const double axisMinAccelSignal = 0.3;
 
-  /// Window over which a post-tunnel GPS correction is paid out.
-  static const Duration reconcileWindow = Duration(seconds: 5);
+  /// SPEC-v2 §12.3 confidence decay. Under 60 s without GNSS the estimate is
+  /// shown as ordinary Estimation Mode; past 60 s the indicator becomes more
+  /// prominent; past 180 s the display warns the distance may be significantly
+  /// wrong.
+  static const Duration reducedConfidenceAfter = Duration(seconds: 60);
+  static const Duration lowConfidenceAfter = Duration(seconds: 180);
 
-  /// Hard ceiling on correction payout (metres per second). Guarantees the
-  /// odometer can never visibly jump, however large the residual.
-  static const double maxReconcileRateMps = 3.0;
+  /// SPEC-v2 §16.1: "Spread the correction linearly over 15 seconds."
+  static const Duration reconcileWindow = Duration(seconds: 15);
+
+  /// SPEC-v2 §16.1: "If the difference exceeds 200 m, spread it over 60 seconds
+  /// instead and flag the event in the trip log." A correction that large is
+  /// more likely to be a bad estimate than a real shortfall, so it is paid out
+  /// four times more gently.
+  static const double largeReconcileMeters = 200.0;
+  static const Duration largeReconcileWindow = Duration(seconds: 60);
+
+  /// Backstop on payout rate (m/s), for residuals outside §16.1's own envelope.
+  ///
+  /// Derived from the spec rather than picked: the fastest §16.1 ever asks for
+  /// is the largest tier-1 residual over the tier-1 window, 200 m / 15 s.
+  /// Anything under that pays out in exactly the window the spec names, so this
+  /// never binds on a spec-compliant correction — it only stretches the absurd
+  /// ones.
+  ///
+  /// It was previously 3.0 m/s, which bound on almost everything: a 50 m
+  /// residual took 16.75 s against §19's 15 s cap, and no change to the window
+  /// alone could have fixed that. The window and this ceiling are one decision.
+  static const double maxReconcileRateMps = largeReconcileMeters / 15.0;
 
   /// Residuals below this (m) are noise — not worth reconciling.
   static const double minReconcileMeters = 0.5;
