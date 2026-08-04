@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>iRallyMeter — what we changed</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    font: 10.5pt/1.5 -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color: #16161a; margin: 0;
+  }
+  h1 { font-size: 21pt; margin: 0 0 2mm; letter-spacing: -.3px; }
+  .sub { color: #6b6b76; font-size: 10pt; margin: 0 0 7mm; }
+  h2 {
+    font-size: 12.5pt; margin: 8mm 0 2.5mm; padding-bottom: 1.5mm;
+    border-bottom: 2px solid #FF6B00; page-break-after: avoid;
+  }
+  h3 { font-size: 10.5pt; margin: 4.5mm 0 1mm; page-break-after: avoid; }
+  p { margin: 0 0 2.5mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 5mm; }
+  li { margin-bottom: 1.5mm; }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 3mm; font-size: 9.5pt; }
+  th, td { border: 1px solid #d8d8de; padding: 1.8mm 2.2mm; text-align: left; vertical-align: top; }
+  th { background: #f4f4f6; font-weight: 600; }
+  code { font-family: "SF Mono", Menlo, monospace; font-size: 9pt; background: #f4f4f6; padding: 0 1mm; border-radius: 2px; }
+  .box { border-left: 3px solid #FF6B00; background: #fff8f2; padding: 3mm 4mm; margin: 0 0 4mm; }
+  .warn { border-left-color: #d92c20; background: #fff5f4; }
+  .ok { border-left-color: #1a9c4c; background: #f2fbf5; }
+  .num { font-weight: 700; color: #d92c20; }
+  .good { font-weight: 700; color: #1a9c4c; }
+  .q { font-weight: 600; }
+  .muted { color: #6b6b76; font-size: 9.5pt; }
+  .avoid { page-break-inside: avoid; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<h1>iRallyMeter — what we changed</h1>
+<p class="sub">Saam &amp; Claude · audit against SPEC-v2 · 4 August 2026 · for Amirali</p>
+
+<div class="box">
+  <p><strong>Short version.</strong> Your architecture was right. The distance
+  engine was already pure Dart, already single-integration speed-hold, already
+  had automatic tunnel detection, and there was no Firebase to rip out. What we
+  found were <em>specific</em> bugs inside a good design, plus five places where
+  the code predated Revision 2 of the spec.</p>
+  <p style="margin:0"><strong>Nothing is merged.</strong> Everything is on two
+  branches, <code>SA-V1</code> and <code>SA-V2</code>. Your <code>main</code>
+  has not been touched once.</p>
+</div>
+
+<h2>Where things stand</h2>
+
+<table>
+<tr><th>&nbsp;</th><th>Before</th><th>After</th></tr>
+<tr><td>Tests passing</td><td>115</td><td class="good">313</td></tr>
+<tr><td>Tests failing</td><td>0</td><td>0</td></tr>
+<tr><td>Analyzer warnings</td><td>2</td><td>2 <span class="muted">(same two, untouched)</span></td></tr>
+<tr><td>Test files</td><td>7</td><td>24</td></tr>
+<tr><td>Release APK</td><td class="muted">never built</td><td class="good">builds and runs</td></tr>
+</table>
+
+<p>One test is still skipped on purpose, and its assertion has never been
+weakened. More on that under “What is still wrong”.</p>
+
+<h2>The bugs that actually mattered</h2>
+
+<p>Each one below is real, was reproduced, and has a number attached. They are
+in order of how much damage they did.</p>
+
+<h3 class="avoid">1. A faster GPS made the app measure <em>less</em></h3>
+<p>The noise-gating rule threw away any movement smaller than the fix's own
+accuracy — but it also <strong>moved the reference point</strong> when it did
+that, so the movement was destroyed instead of ignored. The cutoff works out to
+<code>accuracy × fixRate</code>, which means that at the 5 Hz the app itself
+asks for, <span class="num">everything below 90 km/h was being discarded</span>.</p>
+<p>It hid for fourteen steps because every test fixture ran at 1 Hz and highway
+speed. Fix: hold the reference point when the floor rejects a sample.
+Stop-and-go traffic went from <span class="num">−5.04 %</span> to
+<span class="good">−0.12 %</span>, and a parked car still accumulates exactly
+zero.</p>
+
+<h3 class="avoid">2. Estimation Mode could get stuck on, and invented distance while stuck</h3>
+<p>The app measures with any fix up to 25 m accuracy. But §15.2 only lets it
+<em>leave</em> Estimation Mode on a fix of 20 m or better, and nothing else ended
+the mode. So fixes between 21 m and 25 m were a trap: good enough to measure
+with, not good enough to escape with. Light tree cover sits in exactly that
+band.</p>
+<p>The damage is not noise. A dead-reckoning estimate holds the speed you entered
+at, so it cannot see the car slowing down. In the test: the car halved its speed
+and the app reported <span class="num">2400 m for 1200 m of real travel</span>.
+That error is permanent, because the correction logic only ever adds distance
+back, never removes it.</p>
+<p>Fix: a sustained run of usable, consistent fixes now also ends the mode.
+§15.2 is untouched — three good fixes still exit immediately.</p>
+
+<h3 class="avoid">3. A tunnel is silence, and the first fix made it worse</h3>
+<p>We found the location stream could never recover if you switched location
+services off and back on. The first attempt at a fix was a plain timeout, and it
+was <strong>worse than the bug</strong>: on the phone it restarted the Android
+foreground service about <span class="num">twenty times inside one 400-second
+tunnel</span> — the exact service keeping the app alive in there.</p>
+<p>Rebuilt so tearing the stream down needs <em>evidence</em>, not just quiet.
+Measured at <span class="good">zero restarts</span> across 150 s and 90 s of
+silence.</p>
+
+<h3 class="avoid">4. iOS had never actually been configured</h3>
+<p><code>_settings()</code> returned <code>AndroidSettings</code> on
+<strong>every</strong> platform. It compiled and ran because
+<code>AndroidSettings</code> is a <code>LocationSettings</code>, so the failure
+was completely silent. iOS was getting default accuracy, no activity type, and
+<code>pauseLocationUpdatesAutomatically</code> left at its default — which pauses
+location whenever iOS decides the car has stopped. That is every start line and
+every time control.</p>
+
+<h3 class="avoid">5. Resetting a trip leaked the previous leg into the new one</h3>
+<p>Up to <span class="num">715 m</span> of the old leg's tunnel correction was
+still being paid out into the new leg. On a rally that is the difference between
+“turn after 3 km” landing on the right junction and the wrong one.</p>
+
+<h3 class="avoid">6. The compass — three separate causes</h3>
+<p>You said it was laggy and inaccurate. It was all three of these at once:</p>
+<ul>
+  <li>the smoothing used a per-sample weight, so the lag was a property of the
+      handset's sensor rate rather than of time</li>
+  <li><strong>“Use true north” only changed a label.</strong> No declination was
+      ever applied, so it showed a magnetic reading and called it true</li>
+  <li>tilt compensation worked out “which way is down” from the raw
+      accelerometer, so it followed braking and cornering — wrong exactly when
+      you are looking at it</li>
+</ul>
+<p class="muted">That same per-sample-filter mistake turned up three times in the
+codebase: speed display, compass needle, compass tilt. Worth watching for.</p>
+
+<h3 class="avoid">7. The app could fail to start at all</h3>
+<p><code>main()</code> waited on two permission requests before
+<code>runApp()</code> with no error handling. On a first install they raced,
+threw, and the app hung on the Flutter logo forever.</p>
+
+<h2 class="pb">What else changed</h2>
+
+<ul>
+  <li><strong>Manual TUNNEL buttons deleted</strong> (SPEC-v2 §14/§15) — detection
+      is fully automatic now, with a section log you can read in Settings.</li>
+  <li><strong>Speed comes from GNSS Doppler</strong>, with position
+      differentiation only as a fallback when Doppler is untrustworthy.</li>
+  <li><strong>Estimated state is visible</strong> — amber digits plus an
+      <code>EST</code> / <code>EST?</code> / <code>SYNC</code> badge, on all four
+      readouts. The badge is <em>text</em>, not just colour, because at night the
+      whole palette is one hue family and colour alone tells you nothing.</li>
+  <li><strong>Portrait no longer overflows.</strong> Your own skipped test
+      recorded 142 px, and it grew with the status text — 137 px in Estimation
+      Mode. The nav icons now sit on their own row in portrait only. Nothing was
+      shrunk, and the touch targets ended up further apart.</li>
+  <li><strong>Permissions are explained before they are asked for</strong>, which
+      both stores require and which was a rejection risk.</li>
+  <li><strong>Removed <code>ACCESS_BACKGROUND_LOCATION</code></strong> — it was
+      declared in the manifest and never once requested, so it was never granted
+      and did nothing except add store-review burden.</li>
+  <li><strong>A record-and-replay harness</strong> with nine synthetic drives, so
+      accuracy claims are measured against known ground truth instead of
+      asserted.</li>
+</ul>
+
+<h2>What is still wrong — please read this part</h2>
+
+<div class="box warn">
+<p><strong>These three are not fixed, and none of them can be fixed from a
+desk.</strong></p>
+<ol style="margin-bottom:0">
+  <li><strong>Urban canyon under-reads by <span class="num">12.50 %</span></strong>
+      against the spec's 1 % target. Its test is skipped but written at
+      <em>full</em> strength — deliberately never weakened. We did not tune this,
+      because tuning against a synthetic fixture with no real-world number to
+      check against is guessing, and the same threshold is what keeps a parked
+      car at exactly 0.000 km.</li>
+  <li><strong>No road test has ever happened.</strong> Every accuracy figure in
+      this document comes from generated fixtures where the true answer is exact
+      by construction, or from an emulator. A better replay is not a drive.</li>
+  <li><strong>The app has never run on iOS.</strong> It compiles for the
+      simulator. That is the entire extent of it.</li>
+</ol>
+</div>
+
+<h2>What we need from you</h2>
+
+<p>Ten decisions. Full detail is in <code>docs/QUESTIONS-FOR-AMIRALI.md</code>;
+this is the summary.</p>
+
+<h3>Blocking — work stops until these are answered</h3>
+<table>
+<tr><th style="width:8%">&nbsp;</th><th>Question</th></tr>
+<tr><td><strong>B2</strong></td><td><span class="q">Which map tile source?</span>
+  This blocks offline maps completely, and offline is a hard requirement for
+  rally use. The app currently pulls tiles live from OpenStreetMap, and the OSMF
+  policy <strong>explicitly prohibits</strong> the pre-seeding your existing
+  <code>FileTileProvider</code> TODO plans — so that TODO cannot be finished as
+  written. Options are ranked in <code>docs/IRAN-CONSTRAINTS.md</code> §4; our
+  guess is Neshan or Map.ir with a side-loaded pack.</td></tr>
+<tr><td><strong>B8</strong></td><td><span class="q">Whose signing key, and where
+  is it kept?</span> The release APK is currently signed with the debug keystore.
+  Fine for handing to your dad. Fatal for Cafe Bazaar or Myket — and an app first
+  installed under a debug key <strong>cannot be updated with a real one without
+  uninstalling</strong>, which wipes every tester's trips. This gets worse the
+  longer you leave it.</td></tr>
+<tr><td><strong>B3</strong></td><td><span class="q">Do Iranian crews want
+  Persian-Indic digits, or Latin numbers with translated labels?</span> This is
+  the one we genuinely cannot answer. Rally road books and tripmeters are
+  conventionally read in Latin digits, and the digits <em>are</em> the product.
+  There is no localisation at all right now.</td></tr>
+</table>
+
+<h3>Confirmations — already built this way, say if you disagree</h3>
+<table>
+<tr><th style="width:8%">&nbsp;</th><th>Question</th></tr>
+<tr><td><strong>A1</strong></td><td>§12.2's ±25 % clamp <strong>saturates</strong>
+  at the ceiling rather than snapping back to v₀. We built the literal reading
+  first and our own test caught that it sawtooths — 25, 20, 25, 20 — which on a
+  driver-facing readout looks like a fault.</td></tr>
+<tr><td><strong>A2</strong></td><td>The ±25 % bound is applied
+  <strong>upwards only</strong>, so braking runs all the way to a stop.
+  Symmetrical, a car braking to a halt in a tunnel would hold v₀ and invent
+  distance — and your own <code>tunnel_system_test</code> 11 already asserts a
+  clean stop.</td></tr>
+<tr><td><strong>B1</strong></td><td>Portrait is supported and the nav icons now
+  take a second row. Happy with that, or would you rather portrait dropped
+  something instead?</td></tr>
+<tr><td><strong>B6</strong></td><td>Confirm <code>minSdk = 23</code> and
+  <code>IPHONEOS_DEPLOYMENT_TARGET = 12.0</code> are deliberate floors. Flutter's
+  migrators keep raising both on every native build and we keep reverting
+  them.</td></tr>
+</table>
+
+<h3>Product calls — not blocking</h3>
+<table>
+<tr><th style="width:8%">&nbsp;</th><th>Question</th></tr>
+<tr><td><strong>B4</strong></td><td>§8 names both a moving average and an overall
+  one. We built overall-only and labelled the tile <code>AVG (ALL)</code>. Add
+  the second?</td></tr>
+<tr><td><strong>B5</strong></td><td>Is iOS a shipping platform, or Android-first?
+  Iranian third-party iOS stores re-sign your binary and Apple revokes those
+  certificates, which kills every installed copy at once.</td></tr>
+<tr><td><strong>B7</strong></td><td>A denied permission currently has no in-app
+  way back — the screen points at Android Settings. Add a “grant permission”
+  button in Settings? We lean yes: someone who taps DON'T ALLOW by accident has a
+  dead app and no clue why.</td></tr>
+</table>
+
+<h2>The road test — the part only a car can do</h2>
+
+<p>Full protocol in <code>docs/ROAD-TEST.md</code>. Four things, in priority
+order. Open <strong>Settings → Section log</strong> for the GNSS HEALTH panel and
+screenshot it.</p>
+
+<ol>
+  <li><strong>Mid-drive, switch location services off for a minute, then back on.
+      Do not restart the app.</strong> The trip counter must start advancing
+      again. This is the one fix whose code path is certain but whose on-device
+      behaviour we could not reproduce either way on an emulator.
+      <strong>If this fails, Phase 3 reopens</strong> — it is not a small
+      ticket.</li>
+  <li><strong>A real tunnel</strong> (Niayesh or Alborz). Distance within about
+      3 %, no jump or reversal on exit, and <code>STREAM STALLS</code> must still
+      read <strong>0</strong>.</li>
+  <li><strong>50 km against measured markers.</strong> The target is 1 %.</li>
+  <li><strong>City traffic and a twisty road.</strong> These do not have to pass.
+      They have to be <em>measured</em>, because those two numbers are what
+      decide whether we touch the noise-gating threshold at all.</li>
+</ol>
+
+<div class="box ok">
+<p style="margin:0"><strong>Numbers, not impressions.</strong> If something fails,
+send the number and a screenshot of the section log. The two that are stop-ship
+are a trip counter that freezes and does not recover, and any visible jump or
+reversal when you come out of a tunnel.</p>
+</div>
+
+<h2>Where to look</h2>
+<table>
+<tr><td style="width:32%"><code>docs/AUDIT-REPORT.md</code></td><td>The full technical record</td></tr>
+<tr><td><code>docs/QUESTIONS-FOR-AMIRALI.md</code></td><td>The ten questions, in detail</td></tr>
+<tr><td><code>docs/ROAD-TEST.md</code></td><td>The drive protocol</td></tr>
+<tr><td><code>docs/TEST-BUILD.md</code></td><td>How to build and hand over a test APK</td></tr>
+<tr><td><code>docs/IRAN-CONSTRAINTS.md</code></td><td>Distribution, tiles, Play Services, localisation</td></tr>
+<tr><td><code>docs/SECURITY-REVIEW.md</code></td><td>Permissions and location-data handling</td></tr>
+<tr><td><code>AGENTS.md</code></td><td>Conventions, and the traps that cost us time</td></tr>
+</table>
+
+<p class="muted" style="margin-top:6mm">One more review pass is still to come:
+an independent adversarial review of the estimation state machine and the
+background location lifecycle. Anything it finds gets fixed before the pull
+request is opened. Nothing will be merged without you.</p>
+
+</body>
+</html>
