@@ -3,7 +3,7 @@ import 'package:irallymeter/core/constants/app_constants.dart';
 import 'package:irallymeter/features/compass/domain/heading_calibration.dart';
 
 /// The compass, reported from the road as "laggy, has a delay and isn't
-/// accurate". Three separate causes; these cover the two that were fixed.
+/// accurate". Three separate causes — ALL THREE are now fixed and covered.
 ///
 ///  1. LAG — the needle used a fixed per-sample EMA weight, so its lag in
 ///     seconds was a property of the device's magnetometer rate. Same class of
@@ -11,9 +11,10 @@ import 'package:irallymeter/features/compass/domain/heading_calibration.dart';
 ///  2. ACCURACY — "Use true north" changed only a LABEL. No declination was
 ///     ever applied, so the cluster showed a magnetic reading and called it
 ///     TRUE. In Iran that is roughly 4.5–6° of quiet error.
-///  3. (NOT fixed here) tilt compensation uses the raw accelerometer, which
-///     includes vehicle acceleration, so "which way is down" is wrong exactly
-///     when the car is cornering. Recorded in docs/PHASE4-AUDIT.md.
+///  3. ACCURACY — tilt compensation derived "which way is down" from the raw
+///     accelerometer with a per-sample weight, so it tracked braking and
+///     cornering and the heading swung with them. Fixed in [SA-V2] as P12 with
+///     a time-based gravity low-pass (tests 15-18).
 final t0 = DateTime.utc(2026);
 
 void main() {
@@ -101,6 +102,8 @@ void main() {
       expect(held, 90);
     });
   });
+
+  _p12();
 
   group('accuracy · TRUE is earned, never asserted', () {
     HeadingCalibration trained({
@@ -208,6 +211,83 @@ void main() {
         expect(t, greaterThanOrEqualTo(0.0));
         expect(t, lessThan(360.0));
       }
+    });
+  });
+}
+
+/// P12 — the third cause behind "the compass isn't accurate", fixed in [SA-V2].
+void _p12() {
+  final t0 = DateTime.utc(2026);
+
+  group('accuracy · vehicle acceleration must not tilt the compass', () {
+    test('15 · a hard brake barely moves the gravity estimate', () {
+      // Phone flat: gravity is (0,0,9.81). A 0.4 g brake adds ~4 m/s^2 along x
+      // for two seconds. With the OLD per-sample weight of 0.2 the estimate
+      // tracked that almost completely, so "which way is down" tilted and the
+      // heading swung with it.
+      final g = GravityLowPass(AppConstants.gravityLowPassTau);
+      var t = t0;
+      for (var i = 0; i < 200; i++) {
+        g.add(0, 0, 9.81, t);
+        t = t.add(const Duration(milliseconds: 20));
+      }
+      for (var i = 0; i < 100; i++) {
+        g.add(4.0, 0, 9.81, t); // 2 s of braking at 20 ms
+        t = t.add(const Duration(milliseconds: 20));
+      }
+      expect(g.x, lessThan(2.8),
+          reason: 'gravity x reached ${g.x.toStringAsFixed(2)} m/s^2 during a '
+              'brake — the tilt reference is following the vehicle');
+    });
+
+    test('16 · but a genuine re-orientation IS followed', () {
+      // The phone is re-seated in its mount and stays there. That must track,
+      // or the compass would be permanently wrong after any adjustment.
+      final g = GravityLowPass(AppConstants.gravityLowPassTau);
+      var t = t0;
+      for (var i = 0; i < 100; i++) {
+        g.add(0, 0, 9.81, t);
+        t = t.add(const Duration(milliseconds: 20));
+      }
+      for (var i = 0; i < 600; i++) {
+        g.add(9.81, 0, 0, t); // held on its side for 12 s
+        t = t.add(const Duration(milliseconds: 20));
+      }
+      expect(g.x, greaterThan(9.0));
+      expect(g.z, lessThan(1.0));
+    });
+
+    test('17 · the rate of the accelerometer does not change the behaviour', () {
+      // Same bug class as the speed display and the needle: a per-sample weight
+      // makes the filter's response a property of the device.
+      double afterOneSecondOfBraking(Duration period) {
+        final g = GravityLowPass(AppConstants.gravityLowPassTau);
+        var t = t0;
+        final steps = 1000 ~/ period.inMilliseconds;
+        for (var i = 0; i < steps * 5; i++) {
+          g.add(0, 0, 9.81, t);
+          t = t.add(period);
+        }
+        for (var i = 0; i < steps; i++) {
+          g.add(4.0, 0, 9.81, t);
+          t = t.add(period);
+        }
+        return g.x;
+      }
+
+      final slow = afterOneSecondOfBraking(const Duration(milliseconds: 100));
+      final fast = afterOneSecondOfBraking(const Duration(milliseconds: 10));
+      expect((slow - fast).abs(), lessThan(0.3),
+          reason: 'a 10x faster accelerometer changed the tilt reference by '
+              '${(slow - fast).abs().toStringAsFixed(2)} m/s^2');
+    });
+
+    test('18 · NaN input cannot poison the tilt reference', () {
+      final g = GravityLowPass(AppConstants.gravityLowPassTau);
+      g.add(0, 0, 9.81, t0);
+      g.add(double.nan, 0, 9.81, t0.add(const Duration(milliseconds: 20)));
+      expect(g.x, 0);
+      expect(g.z, 9.81);
     });
   });
 }

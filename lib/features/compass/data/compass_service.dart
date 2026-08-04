@@ -17,8 +17,13 @@ class CompassService {
   StreamSubscription? _accelSub;
   StreamSubscription? _magSub;
 
-  // Latest sensor vectors.
-  double _ax = 0, _ay = 0, _az = 9.81;
+  // Latest sensor vectors. Gravity is TIME-low-passed so vehicle acceleration
+  // cannot corrupt "which way is down" — see [GravityLowPass].
+  final GravityLowPass _gravity =
+      GravityLowPass(AppConstants.gravityLowPassTau);
+  double get _ax => _gravity.x;
+  double get _ay => _gravity.y;
+  double get _az => _gravity.z;
   double _mx = 0, _my = 0, _mz = 0;
   bool _haveMag = false;
 
@@ -39,11 +44,7 @@ class CompassService {
 
   void _start() {
     _accelSub = accelerometerEventStream().listen((e) {
-      // Low-pass to isolate gravity from motion.
-      const a = 0.2;
-      _ax = a * e.x + (1 - a) * _ax;
-      _ay = a * e.y + (1 - a) * _ay;
-      _az = a * e.z + (1 - a) * _az;
+      _gravity.add(e.x, e.y, e.z, DateTime.now());
     });
     _magSub = magnetometerEventStream().listen((e) {
       _mx = e.x;
@@ -94,6 +95,7 @@ class CompassService {
     _accelSub = null;
     _magSub = null;
     _haveMag = false;
+    _gravity.reset();
     _smoother.reset();
   }
 

@@ -158,3 +158,63 @@ class AngleSmoother {
     _lastAt = null;
   }
 }
+
+/// Time-based low-pass for the gravity vector used in tilt compensation.
+///
+/// The third and last cause behind "the compass isn't accurate". `CompassService`
+/// derived "which way is down" from `accelerometerEventStream()`, which reports
+/// gravity PLUS whatever the vehicle is doing, with a fixed per-sample weight of
+/// 0.2. That is fast enough to track braking and cornering, so the tilt
+/// correction was wrong exactly when the car was manoeuvring — which is when
+/// anyone looks at a compass.
+///
+/// Two changes: the weight is derived from elapsed time (so the behaviour does
+/// not depend on the device's sensor rate — the same mistake as the speed
+/// display and the needle), and the time constant is long. Gravity is constant;
+/// the only thing that legitimately moves it is the phone being re-seated in its
+/// mount, which is rare and slow. Vehicle acceleration is transient — a hard
+/// brake is a second or two — so a multi-second constant rejects it while still
+/// following a genuine re-orientation within a few seconds.
+class GravityLowPass {
+  GravityLowPass(this.tau);
+
+  final Duration tau;
+
+  double x = 0, y = 0, z = 9.81;
+  DateTime? _lastAt;
+  bool _seeded = false;
+
+  bool get isSeeded => _seeded;
+
+  void add(double ax, double ay, double az, DateTime at) {
+    if (!ax.isFinite || !ay.isFinite || !az.isFinite) return;
+
+    final last = _lastAt;
+    _lastAt = at;
+
+    if (!_seeded || last == null) {
+      x = ax;
+      y = ay;
+      z = az;
+      _seeded = true;
+      return;
+    }
+
+    final dt = at.difference(last);
+    if (dt <= Duration.zero) return; // out-of-order: hold
+
+    final a = (1 - math.exp(-dt.inMicroseconds / tau.inMicroseconds))
+        .clamp(0.0, 1.0);
+    x += a * (ax - x);
+    y += a * (ay - y);
+    z += a * (az - z);
+  }
+
+  void reset() {
+    x = 0;
+    y = 0;
+    z = 9.81;
+    _lastAt = null;
+    _seeded = false;
+  }
+}

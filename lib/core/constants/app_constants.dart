@@ -126,6 +126,18 @@ class AppConstants {
   /// that chatters is unreadable, and heading changes slower than speed does.
   static const Duration headingSmoothingTau = Duration(milliseconds: 400);
 
+  /// Time constant for the gravity estimate used in compass tilt compensation.
+  ///
+  /// Gravity is constant; the only thing that legitimately moves it is the phone
+  /// being re-seated in its mount. Vehicle acceleration is transient — a hard
+  /// brake lasts a second or two — so a long constant rejects manoeuvring while
+  /// still following a real re-orientation within a few seconds.
+  ///
+  /// The previous code used a fixed per-sample weight of 0.2, fast enough to
+  /// track braking and cornering, so the tilt correction was wrong exactly when
+  /// the car was manoeuvring.
+  static const Duration gravityLowPassTau = Duration(seconds: 2);
+
   /// Observations needed before the app will call a magnetic heading "TRUE".
   ///
   /// The "Use true north" switch used to change only a LABEL — no declination
