@@ -126,9 +126,10 @@ void main() {
         // "GPS ±5m" to "GPS SYNC" (/tmp/shots/09). Restoring this test means
         // injecting a clock into DistanceEngineController — a Phase 4 item, not
         // something to bury inside a spec-compliance step.
-        // Skipped: vacuous before [3.4b]; restoring it needs an injectable
-        // clock in DistanceEngineController.
-        skip: true);
+        // RESTORED in [SA-V2] by P8: the clock is injectable now, so the
+        // engine really does enter Estimation Mode here and the finder matches
+        // the STATUS BAR rather than a button that no longer exists.
+        );
   });
 }
 
@@ -139,6 +140,10 @@ Future<void> _pumpDashboard(
   Size logicalSize, {
   Duration settle = Duration.zero,
 }) async {
+  // P8: the engine's clock is now injectable, so a widget test can actually
+  // reach Estimation Mode. `tester.pump(Duration)` advances only the fake async
+  // clock, so a hard-coded `DateTime.now()` could never be moved from here.
+  var fakeNow = DateTime.utc(2026);
   tester.view.devicePixelRatio = 1.0;
   tester.view.physicalSize = logicalSize;
   addTearDown(tester.view.reset);
@@ -157,6 +162,7 @@ Future<void> _pumpDashboard(
         // Same reason: the §5.1 display heartbeat is an unbounded periodic
         // stream. Pin it so it cannot outlive the tree.
         displayTickProvider.overrideWith((ref) => Stream<int>.value(0)),
+        engineClockProvider.overrideWithValue(() => fakeNow),
       ],
       child: MaterialApp(
         theme: AppTheme.build(DisplayMode.day),
@@ -165,7 +171,12 @@ Future<void> _pumpDashboard(
     ),
   );
   await tester.pump();
-  if (settle > Duration.zero) await tester.pump(settle);
+  if (settle > Duration.zero) {
+    // Move the ENGINE's clock as well as the widget clock, so the dropout
+    // detector sees the silence it is being asked to notice.
+    fakeNow = fakeNow.add(settle);
+    await tester.pump(settle);
+  }
 }
 
 /// Captures any layout exception, then unmounts so the cluster's live timers

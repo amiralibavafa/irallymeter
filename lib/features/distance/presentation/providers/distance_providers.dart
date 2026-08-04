@@ -18,6 +18,21 @@ import '../../domain/motion_sample.dart';
 
 /// DI seam: swap for a fake motion source in tests or simulation mode — the
 /// same pattern [gpsRepositoryProvider] uses.
+/// The clock the engine runs on (P8).
+///
+/// `DistanceEngineController` used to call `DateTime.now()` directly. That made
+/// Estimation Mode unreachable from a widget test: `tester.pump(Duration)`
+/// advances only the fake async clock, so no amount of pumping moved
+/// `DateTime.now()` and the dropout detector could never fire. It is how
+/// `dashboard_layout_test` 05 came to pass VACUOUSLY — its `TUNNEL` finder was
+/// matching a button rather than the status bar, and nobody noticed because the
+/// engine was never actually in Tunnel Mode there.
+///
+/// The engine itself always took `now` as a parameter and was fully testable;
+/// it was only this provider that hard-coded the clock. Overriding this in a
+/// test lets the whole cluster be driven into Estimation Mode.
+final engineClockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
+
 final motionRepositoryProvider = Provider<MotionRepository>((ref) {
   // See gpsRepositoryProvider: the simulated drive has to replace BOTH sources
   // or the engine would be handed real accelerometer noise from a stationary
@@ -55,6 +70,7 @@ final motionStreamProvider = StreamProvider<MotionSample>((ref) {
 /// callback instead.
 class DistanceEngineController extends Notifier<DistanceEngineState> {
   late final DistanceEngine _engine;
+  late final DateTime Function() _clock;
   final StreamController<DistanceDelta> _deltas =
       StreamController<DistanceDelta>.broadcast();
   Timer? _ticker;
@@ -64,6 +80,8 @@ class DistanceEngineController extends Notifier<DistanceEngineState> {
 
   @override
   DistanceEngineState build() {
+    final now = ref.read(engineClockProvider);
+    _clock = now;
     _engine = DistanceEngine(
       onDelta: (d) {
         if (!_deltas.isClosed) _deltas.add(d);
@@ -76,19 +94,19 @@ class DistanceEngineController extends Notifier<DistanceEngineState> {
     // computer has always consumed GPS.
     ref.listen<AsyncValue<GpsSample>>(rawGpsStreamProvider, (_, next) {
       final s = next.valueOrNull;
-      if (s != null) _engine.onGpsSample(s, DateTime.now());
+      if (s != null) _engine.onGpsSample(s, _clock());
     });
 
     ref.listen<AsyncValue<MotionSample>>(motionStreamProvider, (_, next) {
       final m = next.valueOrNull;
-      if (m != null) _engine.onMotionSample(m, DateTime.now());
+      if (m != null) _engine.onMotionSample(m, _clock());
     });
 
     // Heartbeat: dropout detection can't be driven by samples that aren't
     // arriving, and reconciliation pays out against the wall clock.
     _ticker = Timer.periodic(
       AppConstants.engineTick,
-      (_) => _engine.tick(DateTime.now()),
+      (_) => _engine.tick(_clock()),
     );
 
     ref.onDispose(() {
@@ -105,7 +123,7 @@ class DistanceEngineController extends Notifier<DistanceEngineState> {
   /// See [DistanceEngine.settleReconciliation]. Returns the metres owed so the
   /// caller can attribute them to the leg that is ENDING.
   double settleReconciliation() =>
-      _engine.settleReconciliation(DateTime.now());
+      _engine.settleReconciliation(_clock());
 }
 
 final distanceEngineProvider =
