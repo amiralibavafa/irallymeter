@@ -73,12 +73,12 @@ to surface rather than quietly invent. See the question at the end.
 | **6.1** | **Noise gating, 4 rules** | ✅ `[3.2]` + `[3.4d]` | rule 1 accuracy (25 m, stricter than the spec's 30); rule 2 ≥1.5 m/s; rule 3 floor = **the fix's own accuracy**, not a fixed 1 m (that was the whole 2 555 m parked-drift bug); rule 4 reject >3× predicted displacement |
 | **7.1** | **Speed from Doppler, fallback on bad `speedAccuracy`** | ✅ `[3.1]` | `hasValidDopplerSpeed`; the service no longer coerces bad Doppler to `0`, which had left the fallback dead code |
 | **7.2** | **Display smoothing, ≤ ~1 s latency** | ✅ `[3.7]` | Was 8.00 s at 1 Hz. Now time-based. `speed_display_latency_test.dart` |
-| 8 | Average speed | ⏸ **PARTIAL** | Overall average only; no moving average; tile does not say which. **See above** |
+| 8 | Average speed | ✅ label `[3.8]` · ⏸ one of two | Tile now reads **`AVG (ALL)`** so a co-driver can tell which average they are reading. The **moving** average is still unimplemented — Saam chose overall-only-but-labelled over a second tile on a top bar that already overflows |
 | 9 | Trip 1 / Trip 2, independent | ✅ pre-existing | Independent resets, verified live |
 | 10 | Map: location, driven path | ✅ / ⚠️ | Renders; **offline is unimplemented and the planned route is prohibited** — `IRAN-CONSTRAINTS.md` §4 |
 | 11 | GNSS limitations | ✅ n/a | Narrative |
 | **12.1** | **Speed-hold dead reckoning** | ✅ pre-existing | Model was already right — single integration, explicit comment rejecting double integration |
-| **12.2** | **Accelerometer refines SPEED only, ±25 % of v₀** | ✅ `[3.3]` | Was `max(v×1.5, v+8)`. **Two judgement calls open — see below** |
+| **12.2** | **Accelerometer refines SPEED only, ±25 % of v₀** | ✅ `[3.3]` + `[3.9]` | Was `max(v×1.5, v+8)`. **`[3.9]` is the first time this ran in a full replay** — see below. **Two judgement calls open** |
 | **12.3** | **Confidence decay** | ✅ `[3.5]` | 60 s → reduced, 180 s → low; badge **text** changes, not just colour |
 | 13 | Estimation example | ✅ n/a | Narrative |
 | **14** | **Manual correction removed from priority list** | ✅ `[3.4b]` | `lib/features/tunnel/` **deleted**; no override anywhere |
@@ -93,7 +93,7 @@ to surface rather than quietly invent. See the question at the end.
 | 18.3 | Info.plist / Manifest | ✅ **already correct** | Untouched, as instructed |
 | 18.4 | OEM background killing | ✅ n/a | Explicitly unsolvable in code |
 | 19 | Accuracy targets | ✅ rows 1–5 · ⚠️ row 6 | See the table above |
-| **20.1** | **Record and replay** | ✅ `[3.0]` · ⏸ bonus | Recorder, headless player, 3 fixtures. **The optional debug-menu fixture player was never built** |
+| **20.1** | **Record and replay** | ✅ `[3.0]` + `[3.10]` | Recorder, headless player, **4** fixtures, **and the debug-menu player** — Settings → DEBUG → "Simulated drive (tunnel)", debug builds only |
 | 20.2 | Ground truth | ❌ **NOT DONE** | **No road test has happened.** See below |
 | 20.3 | Test list | ✅ mostly | 200 tests. Gaps: background/screen-off over a long drive, Android battery-optimisation survival, iOS background pausing, permissions flow on iOS — all device work |
 
@@ -107,21 +107,31 @@ to surface rather than quietly invent. See the question at the end.
    route, a route with real tunnels, and a tight curved road. **None of it has
    happened.** The §19 targets are met *in replay*; nobody may claim they are met
    in the field.
-2. **The tunnel feature has never met a real tunnel.** `tunnel_2km.jsonl` feeds
-   **zero accelerometer input**, so only the coast-at-v₀ path is exercised —
-   §12.2's ±25 % refinement has never run inside a full tunnel replay, only in
-   isolated unit tests. GPS was genuinely cut on device once
-   (`adb shell settings put secure location_mode 0`) and the EST badges appeared
-   correctly, but that is not a drive.
+2. **Still no real tunnel — but §12.2 now runs in a full replay.** `[3.9]` added
+   `tunnel_varying.jsonl`: a varying-speed approach that trains the forward-axis
+   estimator, then an 80 s blackout where the car genuinely slows and speeds back
+   up. The refinement earns its place:
+
+   | | Dark leg | Error |
+   |---|---|---|
+   | Ground truth | 1700.0 m | — |
+   | **With refinement** | **1734.9 m** | **+2.05 %** ✅ |
+   | Coasting at v₀ (all `tunnel_2km` could test) | 2000.0 m | +17.6 % ❌ |
+
+   `T8b` asserts the middle row beats the bottom one, so if the accelerometer
+   path silently stops contributing a test fails. `[3.10]` then made the same
+   scenario watchable in the live app.
+
+   **This is a better replay, not a drive.** `tunnel_2km.jsonl` still feeds zero
+   accelerometer input by design (it is the §12.1 case), and no road test has
+   happened.
 3. **§19 row 6 (≥ 1 Hz sustained, foreground and background) is unverified.** It is
    a runtime property of the device and the OS, not something a unit test can
    assert. It needs a long screen-off run on real hardware — which is also §20.3's
    "background operation on both platforms" line.
-4. **§8's moving average and its label.** Above.
-5. **§20.1's optional debug-menu fixture player.** The harness is headless-only;
-   there is no way to watch a fixture play into the running app. Listed as a bonus
-   in the original brief and never built.
-6. **No iOS runtime testing.** The project builds for the simulator; nobody has
+4. **§8's moving average.** The label landed in `[3.8]`; the second accumulator
+   did not, by choice.
+5. **No iOS runtime testing.** The project builds for the simulator; nobody has
    run it there.
 
 ---
@@ -145,10 +155,12 @@ the commit messages. **Neither blocks anything.**
 
 ---
 
-## Question for Amirali, on §8
+## Resolved during this audit
 
-The spec asks for both a moving average and an overall average, and to make clear
-which is displayed. Today there is one average (overall) and one unlabelled tile.
-The engine change is small; the display decision is not. Which does a rally crew
-actually want on the cluster — the overall average, the moving average, both, or
-one with a way to switch?
+**§8 — Saam chose overall-only-but-labelled.** The tile now reads `AVG (ALL)`
+(`[3.8]`). Adding the moving average is ten lines of pure Dart, but a second tile
+costs space on a top bar that already overflows in portrait, so it stays out until
+someone wants it. Recorded as a known §8 gap rather than a silent one.
+
+**Portrait — Saam chose "support it, fix the layout".** Not implemented: that is
+Phase 4 work and Phase 4 has not been started. Recorded in `PHASE4-AUDIT.md` P2.
