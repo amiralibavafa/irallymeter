@@ -61,6 +61,22 @@ class AppConstants {
   /// warning; recovery is still instant on the next fresh fix.
   static const int gpsDropoutConfirmTicks = 2;
 
+  /// A subscribed position stream that has delivered NOTHING for this long is
+  /// treated as dead and re-subscribed.
+  ///
+  /// This is the fix for a bug found by driving a real tunnel on device: after
+  /// location services were toggled off and back on, the app sat in Estimation
+  /// Mode forever with a frozen trip counter. The emulator was delivering fixes
+  /// the whole time — a hot restart picked them up instantly — but the existing
+  /// self-healing loop only re-subscribes on an ERROR or on completion, and a
+  /// re-enabled location service leaves behind a stream that is alive and
+  /// SILENT. Silence has to count as a failure too.
+  ///
+  /// Comfortably longer than any legitimate gap: with distanceFilter 0 and a
+  /// 200 ms interval a healthy receiver emits constantly, and a real blackout
+  /// costs only a cheap re-subscribe.
+  static const Duration gpsSilenceResubscribe = Duration(seconds: 20);
+
   /// After the platform position stream errors or ends, wait this long before
   /// re-subscribing. Keeps the GPS engine self-healing instead of latching into
   /// a permanent "lost" state until the app is restarted.

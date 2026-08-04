@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -105,17 +107,39 @@ class GeolocatorGpsService implements GpsRepository {
       // source of truth; just skip the head-start.
     }
 
-    // Self-healing subscription loop. A platform position stream can error or
-    // end (GPS toggled, provider hiccup, foreground service refused). Instead of
-    // latching into a permanent "GPS LOST" state until the app restarts, we emit
-    // a synthetic no-fix sample and re-subscribe after a short backoff.
+    // Self-healing subscription loop. A platform position stream can error, end,
+    // or — the case that actually bit us — stay subscribed and go permanently
+    // SILENT. Instead of latching into "GPS LOST" until the app restarts, we
+    // emit a synthetic no-fix sample and re-subscribe after a short backoff.
+    //
+    // The `.timeout` is load-bearing, not defensive. Found on device by driving
+    // a real tunnel: after location services were switched off and back on, the
+    // app stayed in Estimation Mode with a frozen trip counter and a red EST?
+    // badge. The emulator was delivering fixes the entire time — a hot restart
+    // picked them up immediately — but this loop only re-entered on an error or
+    // on completion, and a re-enabled location service hands back a stream that
+    // is alive and emits nothing. `yield*` then parks here forever.
+    //
+    // On a rally that is the worst possible failure: the trip counter silently
+    // stops and never comes back, and the co-driver has no way to recover it
+    // short of restarting the app mid-stage.
     var background = true;
     while (true) {
       try {
         yield* Geolocator.getPositionStream(
           locationSettings: buildSettings(background: background),
-        ).map(_toSample);
+        ).map(_toSample).timeout(AppConstants.gpsSilenceResubscribe);
         // Stream completed normally (rare) — fall through and reconnect.
+      } on TimeoutException {
+        // SILENCE, not failure. This is the normal state inside a long tunnel,
+        // so it must NOT be treated like a foreground-service refusal: dropping
+        // the FGS here would mean every tunnel quietly cost us the background
+        // service that keeps the receiver alive with the screen off. Re-subscribe
+        // and keep asking for the same configuration.
+        // ignore: avoid_print
+        print('iRallyMeter: no fix for '
+            '${AppConstants.gpsSilenceResubscribe.inSeconds}s — re-subscribing…');
+        yield GpsSample.noFix();
       } catch (e) {
         // The foreground service can fail to start on Android 13+ when the
         // POST_NOTIFICATIONS permission is denied. Drop the FGS requirement for
