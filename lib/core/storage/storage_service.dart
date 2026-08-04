@@ -50,4 +50,9 @@ class StorageKeys {
   static const String lastLat = 'last_lat';
   static const String lastLng = 'last_lng';
   static const String sessions = 'route_sessions'; // List<String> of JSON
+
+  /// Whether the permission rationale has been shown and acted on. Set once the
+  /// user has been through it, whether they granted anything or not — the
+  /// screen explains, it does not enforce, so re-showing it would only nag.
+  static const String onboarded = 'onboarded'; // bool
 }

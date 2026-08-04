@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'app.dart';
 import 'core/di/providers.dart';
 import 'core/storage/storage_service.dart';
-import 'features/gps/data/geolocator_gps_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,40 +26,29 @@ Future<void> main() async {
   // Initialise persistence before the app reads any settings/trip values.
   final storage = await StorageService.init();
 
-  // Request location and notifications up front so the GPS stream can start
-  // immediately. Both are BEST EFFORT and neither may ever gate the first frame.
+  // NOTHING is requested here any more. Permissions are asked for exactly once,
+  // by the rationale screen (P3), from inside a live widget.
   //
-  // These used to be bare awaits. On the first-ever run of this app they threw
+  // This block used to call both plugins on every launch, and for the user it
+  // was meant to help it did nothing at all: an already-granted permission
+  // makes `ensurePermission()` a no-op that never shows a dialog. The only
+  // person it had any effect on was the one who had said NO — who then got a
+  // bare system dialog with no explanation on their next launch, which is
+  // precisely the thing the rationale screen exists to replace. Verified on
+  // device: deny both, relaunch, and the cold prompt came straight back.
+  //
+  // It was also the launch path. On the first-ever run the two calls raced and
+  // threw
   //   PlatformException(PermissionHandler.PermissionManager,
   //                     'A request for permissions is already running')
-  // — two permission requests overlapping — and because they sit BEFORE
-  // runApp, the exception meant runApp was never reached and the app hung on
-  // the Flutter splash screen forever. There was no timeout and no error path:
-  // a brand-new user's app simply never started.
+  // and because they sat BEFORE runApp, the app hung on the Flutter splash
+  // screen forever. `P1` caught the throw; removing the calls removes the
+  // hazard.
   //
-  // It did not reproduce on a later clean reinstall, so the race is
-  // intermittent. The structural hazard is not: any throw here is fatal to
-  // launch. Catching makes the app boot regardless, and the UI degrades
-  // honestly on its own — the status bar already surfaces GPS LOST.
-  try {
-    await GeolocatorGpsService().ensurePermission();
-  } catch (e) {
-    // ignore: avoid_print
-    print('iRallyMeter: location permission request failed ($e) — continuing');
-  }
-
-  try {
-    // Android 13+ needs POST_NOTIFICATIONS for the GPS foreground-service
-    // notification. If it's denied the foreground service can fail to start,
-    // which previously froze speed + trip distance.
-    if (await Permission.notification.isDenied) {
-      await Permission.notification.request();
-    }
-  } catch (e) {
-    // ignore: avoid_print
-    print('iRallyMeter: notification permission request failed ($e) — '
-        'continuing');
-  }
+  // A user who denied now degrades honestly — the status bar reads GPS LOST —
+  // and the rationale screen's own footer points them at Android Settings.
+  // There is deliberately no in-app retry yet; that is a product decision for
+  // Amirali, not something to slip in here.
 
   runApp(
     ProviderScope(
