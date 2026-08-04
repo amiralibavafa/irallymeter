@@ -91,9 +91,6 @@ class DistanceEngineController extends Notifier<DistanceEngineState> {
     return DistanceEngineState.initial;
   }
 
-  /// Driver override — see [DistanceEngine.setManualTunnel].
-  void setManualTunnel(bool active) =>
-      _engine.setManualTunnel(active, DateTime.now());
 }
 
 final distanceEngineProvider =

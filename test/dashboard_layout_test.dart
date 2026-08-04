@@ -90,12 +90,8 @@ void main() {
       await _expectNoOverflow(tester);
     });
 
-    testWidgets('04 · the tunnel control is reachable on the cluster',
-        (tester) async {
-      await _pumpDashboard(tester, storage, pixelLandscape);
-      expect(find.text('TUNNEL'), findsOneWidget);
-      await _expectNoOverflow(tester);
-    });
+    // '04 · the tunnel control is reachable on the cluster' removed in
+    // [3.4b]: SPEC-v2 §15 deletes the manual tunnel control it asserted on.
 
     testWidgets('05 · the status bar stays inside the top bar once Tunnel Mode '
         'lengthens its text', (tester) async {
@@ -108,7 +104,31 @@ void main() {
       expect(find.textContaining('TUNNEL'), findsWidgets,
           reason: 'the engine should have entered Tunnel Mode by now');
       await _expectNoOverflow(tester);
-    });
+    },
+        // SKIPPED IN [3.4b], AND THE REASON IS A FINDING, NOT A CHORE.
+        //
+        // This test was passing VACUOUSLY. `find.textContaining('TUNNEL')` was
+        // matching the TunnelControls button label — the manual control SPEC-v2
+        // §15 removes — not the status bar's "TUNNEL · EST". With that widget
+        // gone the finder fails, which exposes that the engine was never in
+        // Tunnel Mode here at all.
+        //
+        // It cannot be: DistanceEngineController drives `tick(DateTime.now())`,
+        // a WALL clock, while `tester.pump(Duration)` advances only the fake
+        // async clock. No amount of pumping moves `DateTime.now()`, so the
+        // dropout detector can never fire inside a widget test. The engine
+        // itself takes `now` as a parameter and is fully testable (see
+        // estimation_thresholds_test.dart); it is the PROVIDER that hard-codes
+        // the clock.
+        //
+        // The risk it describes is real and was observed on device: the top-bar
+        // overflow grew from 70 px to 79 px when the status text changed from
+        // "GPS ±5m" to "GPS SYNC" (/tmp/shots/09). Restoring this test means
+        // injecting a clock into DistanceEngineController — a Phase 4 item, not
+        // something to bury inside a spec-compliance step.
+        // Skipped: vacuous before [3.4b]; restoring it needs an injectable
+        // clock in DistanceEngineController.
+        skip: true);
   });
 }
 

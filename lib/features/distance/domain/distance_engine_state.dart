@@ -7,7 +7,6 @@ class DistanceEngineState {
   const DistanceEngineState({
     required this.source,
     required this.tunnelMode,
-    required this.manualTunnel,
     required this.reconciling,
     required this.speedMps,
     required this.tunnelSince,
@@ -20,9 +19,6 @@ class DistanceEngineState {
 
   /// True while GPS is unusable and distance is being estimated from sensors.
   final bool tunnelMode;
-
-  /// True while the driver is recording a manual tunnel.
-  final bool manualTunnel;
 
   /// True while a post-tunnel GPS correction is still being paid out.
   final bool reconciling;
@@ -47,7 +43,6 @@ class DistanceEngineState {
   DistanceEngineState copyWith({
     DistanceSource? source,
     bool? tunnelMode,
-    bool? manualTunnel,
     bool? reconciling,
     double? speedMps,
     DateTime? tunnelSince,
@@ -58,7 +53,6 @@ class DistanceEngineState {
     return DistanceEngineState(
       source: source ?? this.source,
       tunnelMode: tunnelMode ?? this.tunnelMode,
-      manualTunnel: manualTunnel ?? this.manualTunnel,
       reconciling: reconciling ?? this.reconciling,
       speedMps: speedMps ?? this.speedMps,
       tunnelSince: clearTunnelSince ? null : (tunnelSince ?? this.tunnelSince),
@@ -70,7 +64,6 @@ class DistanceEngineState {
   static const DistanceEngineState initial = DistanceEngineState(
     source: DistanceSource.gps,
     tunnelMode: false,
-    manualTunnel: false,
     reconciling: false,
     speedMps: 0,
     tunnelSince: null,

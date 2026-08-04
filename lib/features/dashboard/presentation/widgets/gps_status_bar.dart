@@ -7,7 +7,6 @@ import '../../../distance/presentation/providers/distance_providers.dart';
 import '../../../gps/domain/gps_sample.dart';
 import '../../../gps/presentation/providers/gps_providers.dart';
 import '../../../settings/presentation/providers/settings_providers.dart';
-import '../../../tunnel/presentation/providers/tunnel_providers.dart';
 
 /// Compact GPS health strip: fix quality dot + accuracy.
 ///
@@ -19,7 +18,6 @@ import '../../../tunnel/presentation/providers/tunnel_providers.dart';
 ///                            shows the estimated distance so far, because
 ///                            "estimating" alone doesn't tell you how far you
 ///                            have to trust it.
-///   • `TUNNEL REC`         — driver is recording a manual tunnel.
 ///   • `GPS SYNC`           — recovered; a correction is being paid out.
 ///
 /// Deliberately never blank: an ambiguous status is worse than a bad one.
@@ -28,7 +26,6 @@ class GpsStatusBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final recording = ref.watch(tunnelRecordingProvider);
     final tunnel = ref.watch(tunnelModeProvider);
     final reconciling = ref.watch(reconcilingProvider);
     final dropped = ref.watch(gpsDropoutProvider).valueOrNull ?? true;
@@ -39,7 +36,6 @@ class GpsStatusBar extends ConsumerWidget {
     final metric = ref.watch(isMetricProvider);
 
     final (color, icon, text) = _status(
-      recording: recording,
       tunnel: tunnel,
       reconciling: reconciling,
       dropped: dropped,
@@ -78,11 +74,9 @@ class GpsStatusBar extends ConsumerWidget {
     );
   }
 
-  /// Ordered by what the co-driver most needs to know: a manual recording is
-  /// the driver's own action and outranks everything; estimating outranks fix
-  /// quality (the quality is meaningless when we're not using it).
+  /// Ordered by what the co-driver most needs to know: estimating outranks fix
+  /// quality, because the quality is meaningless when we are not using it.
   (Color, IconData, String) _status({
-    required bool recording,
     required bool tunnel,
     required bool reconciling,
     required bool dropped,
@@ -91,9 +85,6 @@ class GpsStatusBar extends ConsumerWidget {
     required double tunnelMeters,
     required bool metric,
   }) {
-    if (recording) {
-      return (AppColors.accent, Icons.fiber_manual_record, 'TUNNEL REC');
-    }
     if (tunnel) {
       final est = Formatters.trip(tunnelMeters, metric: metric);
       return (AppColors.warn, Icons.hourglass_bottom, 'TUNNEL · EST $est');

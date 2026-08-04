@@ -19,7 +19,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:irallymeter/core/constants/app_constants.dart';
-import 'package:irallymeter/core/utils/formatters.dart';
 import 'package:irallymeter/features/distance/domain/distance_delta.dart';
 import 'package:irallymeter/features/distance/domain/distance_engine.dart';
 import 'package:irallymeter/features/distance/domain/distance_reconciler.dart';
@@ -27,7 +26,6 @@ import 'package:irallymeter/features/distance/domain/longitudinal_axis_estimator
 import 'package:irallymeter/features/distance/domain/motion_sample.dart';
 import 'package:irallymeter/features/distance/domain/sensor_distance_source.dart';
 import 'package:irallymeter/features/gps/domain/gps_sample.dart';
-import 'package:irallymeter/features/tunnel/domain/tunnel_marker.dart';
 
 void main() {
   // ===========================================================================
@@ -330,92 +328,13 @@ void main() {
   // ===========================================================================
   // MANUAL — driver-marked tunnels
   // ===========================================================================
-  group('TUNNEL · manual markers', () {
-    test('21 · reproduces the worked rally example', () {
-      // Tunnel Start  12.430 km @ 10:31:25
-      // Tunnel End    14.020 km @ 10:33:00
-      //   → 1.590 km · 1:35 · 60.3 km/h
-      //
-      // NOTE: the spec quotes 60.1 km/h for this example, but the figures it
-      // gives don't produce that: 1.590 km in 95 s is 60.25 km/h → 60.3. The
-      // 60.1 reading would need 95.24 s. We assert the arithmetic the markers
-      // actually imply rather than the spec's transcription of it.
-      final start = _mark(km: 12.430, at: DateTime(2024, 1, 1, 10, 31, 25));
-      final end = _mark(km: 14.020, at: DateTime(2024, 1, 1, 10, 33, 0));
-
-      final r = TunnelResult.between(start, end);
-
-      expect(Formatters.distancePrecise(r.distanceMeters, metric: true), '1.590 km');
-      expect(Formatters.legTime(r.duration), '1:35');
-      expect(r.averageMps, closeTo(16.7368, 0.001));
-      expect(Formatters.speedPrecise(r.averageMps, SpeedUnit.kmh), '60.3');
-    });
-
-    test('22 · an end reading below the start can never go negative', () {
-      // Reachable in practice: the ±10/±100 m roadbook correction pad can be
-      // used mid-tunnel.
-      final r = TunnelResult.between(
-        _mark(km: 14.0, at: DateTime(2024, 1, 1, 10, 31, 25)),
-        _mark(km: 12.0, at: DateTime(2024, 1, 1, 10, 33, 0)),
-      );
-      expect(r.distanceMeters, 0);
-      expect(r.averageMps, 0);
-    });
-
-    test('23 · a zero-duration marker pair never divides by zero', () {
-      final t = DateTime(2024, 1, 1, 10, 0, 0);
-      final r = TunnelResult.between(_mark(km: 1, at: t), _mark(km: 2, at: t));
-      expect(r.averageMps, 0);
-      expect(r.distanceMeters, closeTo(1000, 0.001));
-    });
-
-    test('24 · a marker never abandons healthy GPS (GPS stays primary)', () {
-      final h = _Harness()
-        ..gps(lat: 46.0, lon: 8.0, speed: 20, ms: 0)
-        ..gps(lat: 46.0002, lon: 8.0, speed: 20, ms: 1000);
-
-      h.engine.setManualTunnel(true, h.at(1100));
-
-      expect(h.state.manualTunnel, isTrue);
-      expect(h.state.tunnelMode, isFalse,
-          reason: 'a sensor estimate is never better than a live fix — marking '
-              'a tunnel must not downgrade the source');
-    });
-
-    test('25 · a marker pre-empts the confirm delay once GPS stops being usable',
-        () {
-      final h = _Harness()
-        ..gps(lat: 46.0, lon: 8.0, speed: 20, ms: 0)
-        ..gps(lat: 46.0002, lon: 8.0, speed: 20, ms: 1000);
-
-      // The tunnel mouth wrecks accuracy; the detector would still wait out its
-      // 2 s confirm before trusting that.
-      h.gps(lat: 46.0003, lon: 8.0, speed: 20, ms: 1500, acc: 80);
-
-      // The driver can see the tunnel, so their call starts the estimate now.
-      h.engine.setManualTunnel(true, h.at(1600));
-      expect(h.state.tunnelMode, isTrue,
-          reason: 'entered at 1.6 s — well before the 3.0 s auto-confirm');
-      expect(h.state.source, DistanceSource.sensor);
-    });
-
-    test('26 · recovery is decided by GPS health, not by the recording', () {
-      final h = _Harness()..driveInto(tunnelAtMs: 4100, speedMps: 20);
-      h.coast(fromMs: 4100, toMs: 5100);
-      h.engine.setManualTunnel(true, h.at(5150));
-
-      // GPS comes back mid-leg. It is primary, so we must return to it rather
-      // than keep dead-reckoning just because a leg is still being measured.
-      h.gps(lat: 46.002, lon: 8.0, speed: 20, ms: 5200);
-      h.gps(lat: 46.0021, lon: 8.0, speed: 20, ms: 6900);
-      h.gps(lat: 46.0022, lon: 8.0, speed: 20, ms: 7900); // §15.2: 3 fixes
-
-      expect(h.state.tunnelMode, isFalse);
-      expect(h.state.source, DistanceSource.gps);
-      expect(h.state.manualTunnel, isTrue,
-          reason: 'the leg keeps measuring, now against the better source');
-    });
-  });
+  // SPEC-v2 §15 removed the manual Tunnel Start/End buttons outright:
+  // "Requiring the driver or co-driver to press a button at the moment they
+  // enter a tunnel is unrealistic in a moving car, and the resulting
+  // measurement would depend on human reaction time." The tests that covered
+  // that feature went with it in [3.4b] — they were not weakened, the feature
+  // they exercised no longer exists. Automatic detection is covered by
+  // estimation_thresholds_test.dart (§15.1/§15.2).
 }
 
 // =============================================================================
@@ -508,11 +427,4 @@ LongitudinalAxisEstimator _confidentAxis() {
   return a;
 }
 
-TunnelMark _mark({required double km, required DateTime at}) => TunnelMark(
-      at: at,
-      distanceMeters: km * 1000,
-      speedMps: 0,
-      latitude: 0,
-      longitude: 0,
-      hasFix: true,
-    );
+

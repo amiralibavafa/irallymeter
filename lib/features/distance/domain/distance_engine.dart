@@ -17,9 +17,9 @@ import 'sensor_distance_source.dart';
 ///
 ///   1. [DistanceSource.gps]    — ground truth. Used whenever GPS is healthy.
 ///   2. [DistanceSource.sensor] — estimate. Used in Tunnel Mode.
-///   3. [DistanceSource.manual] — driver override. Forces Tunnel Mode on while
-///      a manual tunnel is being recorded, so the driver's judgement outranks
-///      the automatic detector (see [setManualTunnel]).
+///
+/// SPEC-v2 §14 removed manual correction from the priority list entirely: "All
+/// estimation is automatic (see Section 15)." There is no driver override.
 ///
 /// ## Tunnel detection
 ///
@@ -62,12 +62,10 @@ class DistanceEngine {
   // --- GPS health tracking (wall clock — see class doc) ---
   DateTime? _lastHealthyAt;
   GpsSample? _lastHealthySample;
-  bool _lastSampleHealthy = false;
   double _gpsSpeedMps = 0;
 
   // --- Tunnel bookkeeping ---
   GpsSample? _tunnelEntryFix;
-  bool _manualTunnel = false;
 
   /// How many consecutive fixes have met BOTH §15.2 exit tests. Reset to zero
   /// by any fix that fails either, so recovery must be confirmed afresh.
@@ -84,7 +82,6 @@ class DistanceEngine {
   /// Fold in a GPS fix. [now] is wall-clock; the fix carries its own timestamp.
   void onGpsSample(GpsSample s, DateTime now) {
     final healthy = GpsDistanceSource.isHealthy(s);
-    _lastSampleHealthy = healthy;
 
     if (!healthy) {
       // An unhealthy fix is indistinguishable from no fix for our purposes:
@@ -157,44 +154,6 @@ class DistanceEngine {
     if (_state.reconciling != _reconciler.isActive) {
       _publish(_state.copyWith(reconciling: _reconciler.isActive));
     }
-  }
-
-  /// Driver override: the manual source's role in the priority chain.
-  ///
-  /// Deliberately does NOT force estimation on. GPS is primary, and a sensor
-  /// estimate is never better than a healthy fix — so marking a tunnel while
-  /// the signal is still good keeps integrating GPS. Doing otherwise would
-  /// throw away ground truth in exchange for dead reckoning, which is strictly
-  /// worse and would make the measured leg less accurate, not more.
-  ///
-  /// What it DOES buy is latency. A tunnel mouth usually degrades accuracy
-  /// before the signal vanishes, and the driver can see it coming; their
-  /// assertion lets us start estimating the moment GPS stops being usable,
-  /// instead of waiting out [AppConstants.tunnelConfirmDelay] of junk fixes.
-  ///
-  /// Recording is otherwise orthogonal to source arbitration: if GPS recovers
-  /// mid-tunnel we go straight back to it while the leg keeps measuring.
-  void setManualTunnel(bool active, DateTime now) {
-    if (_manualTunnel == active) return;
-    _manualTunnel = active;
-
-    if (active && !_state.tunnelMode && !_gpsUsableNow(now)) {
-      _enterTunnel(now);
-    }
-    _publish(_state.copyWith(manualTunnel: active));
-  }
-
-  /// Whether GPS is delivering fixes we would actually integrate right now.
-  ///
-  /// Both halves matter: the last fix must have been good (accuracy hasn't
-  /// collapsed at the tunnel mouth) AND fixes must still be arriving. Checking
-  /// only staleness would make the manual override useless, since the stale
-  /// timeout is longer than the auto-confirm delay it is meant to pre-empt.
-  bool _gpsUsableNow(DateTime now) {
-    final last = _lastHealthyAt;
-    return _lastSampleHealthy &&
-        last != null &&
-        now.difference(last) < AppConstants.gpsStaleTimeout;
   }
 
   // ===========================================================================
@@ -416,7 +375,6 @@ class DistanceEngine {
     _tunnelEntryFix = null;
     _pendingMotion = null;
     _gpsSpeedMps = 0;
-    _manualTunnel = false;
     _publish(DistanceEngineState.initial);
   }
 }

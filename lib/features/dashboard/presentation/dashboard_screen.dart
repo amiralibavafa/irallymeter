@@ -7,7 +7,6 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_clock.dart';
 import '../../settings/presentation/providers/settings_providers.dart';
 import '../../trip/domain/trip_state.dart';
-import '../../tunnel/presentation/widgets/tunnel_controls.dart';
 import '../../average_speed/presentation/widgets/average_speed_display.dart';
 import 'widgets/gps_status_bar.dart';
 import 'widgets/speed_display.dart';
@@ -131,8 +130,6 @@ class _LandscapeLayout extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const TripControls(counter: TripCounter.a),
-              const SizedBox(height: 8),
-              const TunnelControls(),
             ],
           ),
         ),
@@ -177,8 +174,6 @@ class _PortraitLayout extends StatelessWidget {
         const OdometerReadout(),
         const SizedBox(height: 8),
         const TripControls(counter: TripCounter.a),
-        const SizedBox(height: 8),
-        const TunnelControls(),
       ],
     );
   }

@@ -34,7 +34,6 @@ import 'package:irallymeter/features/settings/presentation/providers/settings_pr
 import 'package:irallymeter/features/trip/data/trip_repository.dart';
 import 'package:irallymeter/features/trip/domain/trip_state.dart';
 import 'package:irallymeter/features/trip/presentation/providers/trip_providers.dart';
-import 'package:irallymeter/features/tunnel/presentation/providers/tunnel_providers.dart';
 import 'package:irallymeter/features/average_speed/presentation/providers/average_speed_providers.dart';
 
 void main() {
@@ -96,109 +95,13 @@ void main() {
   // ===========================================================================
   // MANUAL TUNNEL MARKERS
   // ===========================================================================
-  group('SCENARIO · manual markers', () {
-    test('05 · Tunnel Start captures time, distance, speed and GPS position',
-        () async {
-      final h = await _Rig.start();
-      await h.fix(lat: 46.0, lon: 8.0, tMs: 0, speed: 20);
-      await h.fix(lat: 46.001, lon: 8.0, tMs: 2000, speed: 20);
-
-      final before = DateTime.now();
-      h.container.read(tunnelProvider.notifier).markStart();
-      final mark = h.container.read(tunnelProvider).start!;
-
-      expect(mark.at.isBefore(before.subtract(const Duration(seconds: 1))), isFalse);
-      expect(mark.distanceMeters, closeTo(h.trip.tripA, 0.001));
-      expect(mark.speedMps, closeTo(20, 1));
-      expect(mark.hasFix, isTrue);
-      expect(mark.latitude, closeTo(46.001, 0.0001));
-      expect(mark.longitude, closeTo(8.0, 0.0001));
-      await h.dispose();
-    });
-
-    test('06 · marking a tunnel does NOT abandon healthy GPS', () async {
-      // GPS is primary. A sensor estimate is never better than a live fix, so
-      // marking a tunnel while the signal is good must keep using GPS —
-      // otherwise the marked leg would be measured LESS accurately than an
-      // unmarked one, which is exactly backwards.
-      final h = await _Rig.start();
-      await h.fix(lat: 46.0, tMs: 0, speed: 20);
-
-      h.container.read(tunnelProvider.notifier).markStart();
-      expect(h.container.read(tunnelRecordingProvider), isTrue);
-      expect(h.container.read(tunnelModeProvider), isFalse,
-          reason: 'good GPS outranks the driver\'s hint');
-      await h.dispose();
-    });
-
-    test('07 · Tunnel End computes distance, duration and average speed',
-        () async {
-      final h = await _Rig.start();
-      await h.fix(lat: 46.0, lon: 8.0, tMs: 0, speed: 20);
-      h.container.read(tunnelProvider.notifier).markStart();
-
-      // Cover ~222 m of real GPS ground between the markers.
-      await h.fix(lat: 46.001, lon: 8.0, tMs: 2000, speed: 20);
-      await h.fix(lat: 46.002, lon: 8.0, tMs: 4000, speed: 20);
-
-      h.container.read(tunnelProvider.notifier).markEnd();
-      final r = h.container.read(lastTunnelResultProvider)!;
-
-      expect(r.distanceMeters, closeTo(222.4, 5));
-      expect(r.duration, greaterThanOrEqualTo(Duration.zero));
-      expect(r.averageMps, greaterThanOrEqualTo(0));
-      expect(h.container.read(tunnelRecordingProvider), isFalse);
-      expect(h.container.read(tunnelModeProvider), isFalse,
-          reason: 'ending the marker releases the manual override');
-      await h.dispose();
-    });
-
-    test('08 · multiple tunnel sessions in one trip each measure independently',
-        () async {
-      final h = await _Rig.start();
-      final tunnel = h.container.read(tunnelProvider.notifier);
-      await h.fix(lat: 46.0, lon: 8.0, tMs: 0, speed: 20);
-
-      // First tunnel: ~111 m.
-      tunnel.markStart();
-      await h.fix(lat: 46.001, lon: 8.0, tMs: 2000, speed: 20);
-      tunnel.markEnd();
-      final first = h.container.read(lastTunnelResultProvider)!;
-      expect(first.distanceMeters, closeTo(111.2, 4));
-
-      // Drive on between tunnels — must not be counted in either leg.
-      await h.fix(lat: 46.002, lon: 8.0, tMs: 4000, speed: 20);
-
-      // Second tunnel: ~222 m, and it must REPLACE the first, not accumulate.
-      tunnel.markStart();
-      await h.fix(lat: 46.003, lon: 8.0, tMs: 6000, speed: 20);
-      await h.fix(lat: 46.004, lon: 8.0, tMs: 8000, speed: 20);
-      tunnel.markEnd();
-      final second = h.container.read(lastTunnelResultProvider)!;
-
-      expect(second.distanceMeters, closeTo(222.4, 5));
-      expect(second.start.distanceMeters, greaterThan(first.end.distanceMeters),
-          reason: 'the second leg starts after the first ended');
-      await h.dispose();
-    });
-
-    test('09 · a tunnel marked with no GPS fix still records estimated distance',
-        () async {
-      // The end marker frequently lands with no fix — that is the normal case.
-      final h = await _Rig.start();
-      await h.fix(lat: 46.0, lon: 8.0, tMs: 0, speed: 20);
-      final tunnel = h.container.read(tunnelProvider.notifier);
-
-      tunnel.markStart();
-      expect(h.container.read(tunnelProvider).start!.hasFix, isTrue);
-
-      tunnel.markEnd();
-      final r = h.container.read(lastTunnelResultProvider)!;
-      expect(r.distanceMeters, greaterThanOrEqualTo(0),
-          reason: 'never negative, even with no GPS to measure against');
-      await h.dispose();
-    });
-  });
+  // SPEC-v2 §15 removed the manual Tunnel Start/End buttons outright:
+  // "Requiring the driver or co-driver to press a button at the moment they
+  // enter a tunnel is unrealistic in a moving car, and the resulting
+  // measurement would depend on human reaction time." The tests that covered
+  // that feature went with it in [3.4b] — they were not weakened, the feature
+  // they exercised no longer exists. Automatic detection is covered by
+  // estimation_thresholds_test.dart (§15.1/§15.2).
 
   // ===========================================================================
   // EDGE CASES
@@ -270,10 +173,8 @@ void main() {
       await h.fix(lat: 46.0, tMs: 0, speed: 20);
       await h.fix(lat: 46.001, tMs: 2000, speed: 20);
 
-      // Enter a tunnel and start recording, then die (process kill / restart).
+      // Enter a tunnel, then die (process kill / restart).
       await h.enterTunnel();
-      h.container.read(tunnelProvider.notifier).markStart();
-      expect(h.container.read(tunnelRecordingProvider), isTrue);
       final beforeRestart = h.trip.tripA;
       await h.dispose(); // flushes on dispose
 
@@ -282,8 +183,6 @@ void main() {
       expect(h2.trip.tripA, closeTo(beforeRestart, 0.001),
           reason: 'trip distance must survive a restart');
       expect(h2.container.read(tunnelModeProvider), isFalse);
-      expect(h2.container.read(tunnelRecordingProvider), isFalse,
-          reason: 'a manual recording is session state and starts clean');
       await h2.dispose();
     });
 
@@ -405,7 +304,6 @@ class _Rig {
     container.listen(distanceDeltaProvider, (_, __) {}, fireImmediately: true);
     container.listen(tripProvider, (_, __) {}, fireImmediately: true);
     container.listen(averageSpeedProvider, (_, __) {}, fireImmediately: true);
-    container.listen(tunnelProvider, (_, __) {}, fireImmediately: true);
     await _pump();
 
     return _Rig._(container, gps, motion);
