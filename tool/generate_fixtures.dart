@@ -306,10 +306,322 @@ void tunnelVarying() {
           'dark leg ${dark.toStringAsFixed(1)} · coasting at v0 would give 2000.0');
 }
 
+// ---------------------------------------------------------------------------
+// 5. mountain_hairpins — SPEC-v2 §19's "note on curved roads"
+// ---------------------------------------------------------------------------
+//
+// "At a 1 Hz update rate, the application measures straight lines between
+// fixes. On tight mountain or gravel roads these straight lines cut across
+// curves, so measured distance will read slightly short."
+//
+// This fixture MEASURES that effect instead of leaving it as a warning. The car
+// drives 20 semicircular hairpins of radius 30 m at 12 m/s (43 km/h), sampled
+// at 1 Hz. Ground truth is the ARC length the car actually drove; the engine
+// can only ever see the chords between fixes.
+//
+// The gap is a property of geometry, not a defect — which is why §19 defers a
+// calibration factor rather than calling it a bug. The test asserts the
+// direction (short, never long) and pins the magnitude so a regression that
+// made it worse would be visible.
+void mountainHairpins() {
+  const radiusM = 30.0;
+  const v = 12.0;
+  const turns = 20;
+  final lines = <String>[];
+
+  // Arc length of a semicircle, and how long it takes at v.
+  const arcPerTurn = math.pi * radiusM;
+  final secondsPerTurn = arcPerTurn / v;
+
+  var t = 0.0;
+  var groundTruth = 0.0;
+  // Track the car in a local metric frame, then convert once.
+  var northM = 0.0, eastM = 0.0;
+  var bearing = 0.0; // radians, 0 = north
+
+  final samples = <List<double>>[]; // t, northM, eastM, speed, headingDeg
+
+  for (var turn = 0; turn < turns; turn++) {
+    // Alternate left/right so the road snakes rather than spiralling away.
+    final sign = turn.isEven ? 1.0 : -1.0;
+    final steps = (secondsPerTurn * 10).round(); // integrate at 10 Hz
+    final dt = secondsPerTurn / steps;
+    for (var i = 0; i < steps; i++) {
+      final dTheta = sign * (v * dt) / radiusM;
+      bearing += dTheta;
+      northM += v * dt * math.cos(bearing);
+      eastM += v * dt * math.sin(bearing);
+      groundTruth += v * dt;
+      t += dt;
+      samples.add([
+        t,
+        northM,
+        eastM,
+        v,
+        (bearing * 180 / math.pi + 360) % 360,
+      ]);
+    }
+  }
+
+  // Emit at 1 Hz by picking the nearest integrated sample to each second.
+  for (var s = 0; s <= t.floor(); s++) {
+    final target = s.toDouble();
+    var best = samples.first;
+    for (final smp in samples) {
+      if ((smp[0] - target).abs() < (best[0] - target).abs()) best = smp;
+    }
+    lines.add(gps(
+      ms: s * 1000,
+      lat: kStartLat + best[1] * kDegPerMetre,
+      lon: kStartLon +
+          best[2] * kDegPerMetre / math.cos(kStartLat * math.pi / 180.0),
+      speed: best[3],
+      speedAcc: 0.5,
+      heading: best[4],
+      accuracy: 5.0,
+    ));
+  }
+
+  write(
+      'mountain_hairpins.jsonl',
+      lines,
+      'mountain_hairpins · $turns semicircles r=${radiusM}m at ${v}m/s, 1 Hz · '
+          'GROUND TRUTH ${groundTruth.toStringAsFixed(1)} (ARC length; chords '
+          'between 1 Hz fixes must read SHORT — §19 note on curved roads)');
+}
+
+// ---------------------------------------------------------------------------
+// 6. stop_start_traffic — §6.1 must not creep across many stops
+// ---------------------------------------------------------------------------
+//
+// Twelve cycles of: accelerate to 14 m/s, hold, decelerate, then sit still for
+// 25 s with ordinary standstill wander. A single 10-minute stop is already
+// covered by parked_10min; this is the harder case — the gate has to re-arm
+// correctly every time, twelve times, without leaking a few metres per stop.
+// Five metres of creep per stop is 60 m over this trace and would be invisible
+// in any single-stop test.
+void stopStartTraffic() {
+  final rng = Lcg(775533);
+  final lines = <String>[];
+  var ms = 0;
+  var northM = 0.0;
+  var groundTruth = 0.0;
+
+  void fix(double n, double speed, double acc, {double? eastM}) {
+    lines.add(gps(
+      ms: ms,
+      lat: kStartLat + n * kDegPerMetre,
+      lon: kStartLon +
+          (eastM ?? 0) * kDegPerMetre / math.cos(kStartLat * math.pi / 180.0),
+      speed: speed,
+      speedAcc: 0.5,
+      heading: 0.0,
+      accuracy: acc,
+    ));
+    ms += 1000;
+  }
+
+  for (var cycle = 0; cycle < 12; cycle++) {
+    // Accelerate 0 -> 14 m/s over 7 s, cruise 10 s, decelerate over 7 s.
+    for (var s = 1; s <= 7; s++) {
+      final v = 14.0 * s / 7.0;
+      northM += v;
+      groundTruth += v;
+      fix(northM, v, 5.0);
+    }
+    for (var s = 0; s < 10; s++) {
+      northM += 14.0;
+      groundTruth += 14.0;
+      fix(northM, 14.0, 5.0);
+    }
+    for (var s = 6; s >= 0; s--) {
+      final v = 14.0 * s / 7.0;
+      northM += v;
+      groundTruth += v;
+      fix(northM, v, 5.0);
+    }
+    // Stopped at the lights: 25 s of wander, ±3 m, tiny reported speeds.
+    for (var s = 0; s < 25; s++) {
+      fix(northM + rng.symmetric() * 3.0, rng.symmetric().abs() * 0.5, 6.0,
+          eastM: rng.symmetric() * 3.0);
+    }
+  }
+
+  write(
+      'stop_start_traffic.jsonl',
+      lines,
+      'stop_start_traffic · 12 x (accel/cruise/decel + 25 s stopped with ±3 m '
+          'wander) · GROUND TRUTH ${groundTruth.toStringAsFixed(1)} — any creep '
+          'per stop compounds 12x');
+}
+
+// ---------------------------------------------------------------------------
+// 7. multi_tunnel — five short tunnels back to back
+// ---------------------------------------------------------------------------
+//
+// A single long blackout is covered by tunnel_2km and tunnel_varying. A rally
+// stage through a gorge is a string of SHORT ones, and that stresses different
+// code: entry debounce, exit debounce, re-anchoring, and whether five
+// reconciliations in a row stack up unpaid corrections. It is also the only
+// fixture that produces more than one §15.3 section.
+void multiTunnel() {
+  const v = 22.0;
+  final lines = <String>[];
+  var s = 0;
+  var metres = 0.0;
+  var groundTruth = 0.0;
+  final darkSpans = <List<int>>[];
+
+  void clean(int seconds) {
+    for (var i = 0; i < seconds; i++) {
+      metres += v;
+      groundTruth += v;
+      lines.add(gps(
+        ms: s * 1000,
+        lat: kStartLat + metres * kDegPerMetre,
+        lon: kStartLon,
+        speed: v,
+        speedAcc: 0.5,
+        heading: 0.0,
+        accuracy: 5.0,
+      ));
+      s++;
+    }
+  }
+
+  void dark(int seconds) {
+    darkSpans.add([s, s + seconds]);
+    for (var i = 0; i < seconds; i++) {
+      metres += v;
+      groundTruth += v;
+      s++;
+    }
+  }
+
+  clean(20);
+  for (var i = 0; i < 5; i++) {
+    dark(25); // 550 m each
+    clean(20); // 440 m of daylight between them
+  }
+
+  // Motion throughout, no net acceleration: constant speed through each tunnel.
+  final totalMs = s * 1000;
+  for (var t = 0; t <= totalMs; t += 50) {
+    lines.add(motion(ms: t, ax: 0.0));
+  }
+
+  lines.sort((a, b) {
+    int msOf(String l) =>
+        int.parse(RegExp(r'"ms":(\d+)').firstMatch(l)!.group(1)!);
+    return msOf(a).compareTo(msOf(b));
+  });
+
+  write(
+      'multi_tunnel.jsonl',
+      lines,
+      'multi_tunnel · 5 x 25 s blackouts at ${v}m/s separated by 20 s clean · '
+          'GROUND TRUTH ${groundTruth.toStringAsFixed(1)}, each dark leg 550.0');
+}
+
+// ---------------------------------------------------------------------------
+// 8. urban_canyon — degraded but never absent
+// ---------------------------------------------------------------------------
+//
+// The nastiest real case, and the one most likely to be wrong: fixes keep
+// arriving at 1 Hz, so the silence trigger never fires, but their accuracy
+// swings between 6 m and 45 m and the positions scatter accordingly.
+//
+// This sits deliberately across three thresholds — usableAccuracyMeters (25),
+// estimationEntryAccuracyMeters (50) and the exit bar (20) — so it exercises
+// the gap the engine is supposed to have: a fix too poor to integrate but not
+// poor enough to abandon GPS over. The car really does travel 18 m/s the whole
+// time, so any answer far from ground truth means the gating is wrong in one
+// direction or the other.
+void urbanCanyon() {
+  final rng = Lcg(31415926);
+  const v = 18.0;
+  final lines = <String>[];
+  var metres = 0.0;
+
+  for (var s = 0; s <= 300; s++) {
+    metres = v * s;
+    // Accuracy breathes between 6 m and 45 m on a slow cycle.
+    final acc = 6.0 + 39.0 * (0.5 + 0.5 * math.sin(s / 11.0));
+    // Scatter proportional to the reported accuracy — a well-behaved receiver.
+    final scatter = rng.symmetric() * acc * 0.5;
+    lines.add(gps(
+      ms: s * 1000,
+      lat: kStartLat + (metres + scatter) * kDegPerMetre,
+      lon: kStartLon +
+          rng.symmetric() *
+              acc *
+              0.5 *
+              kDegPerMetre /
+              math.cos(kStartLat * math.pi / 180.0),
+      speed: v,
+      speedAcc: 0.8,
+      heading: 0.0,
+      accuracy: acc,
+    ));
+  }
+
+  // Motion throughout. Without it this fixture would be unfair: the engine
+  // drops into Estimation Mode when the accuracy breathes past the integrable
+  // limit, and with no inertial input there is nothing for it to estimate FROM,
+  // so it would measure nothing and the fixture would be blaming the engine for
+  // data it was never given. A real phone always has an accelerometer.
+  for (var t = 0; t <= 300 * 1000; t += 50) {
+    lines.add(motion(ms: t, ax: 0.0));
+  }
+
+  lines.sort((a, b) {
+    int msOf(String l) =>
+        int.parse(RegExp(r'"ms":(\d+)').firstMatch(l)!.group(1)!);
+    return msOf(a).compareTo(msOf(b));
+  });
+
+  write(
+      'urban_canyon.jsonl',
+      lines,
+      'urban_canyon · 300 s at ${v}m/s, accuracy breathing 6-45 m with '
+          'proportional scatter · GROUND TRUTH ${(v * 300).toStringAsFixed(1)}');
+}
+
+// ---------------------------------------------------------------------------
+// 9. long_drive_500km — float accumulation over a real rally distance
+// ---------------------------------------------------------------------------
+//
+// The prompt's Phase 5 adversarial brief names "float accumulation drift over a
+// 500 km trip". 20 000 fixes at 25 m each. Every increment is identical, so any
+// error is purely the accumulator's, and the expected total is exact.
+void longDrive() {
+  const stepM = 25.0;
+  const steps = 20000; // 500.000 km
+  final lines = <String>[];
+  for (var i = 0; i <= steps; i++) {
+    lines.add(gps(
+      ms: i * 1000,
+      lat: kStartLat + i * stepM * kDegPerMetre,
+      lon: kStartLon,
+      speed: 25.0,
+      speedAcc: 0.5,
+      heading: 0.0,
+      accuracy: 5.0,
+    ));
+  }
+  write('long_drive_500km.jsonl', lines,
+      'long_drive_500km · 500000.000 m due north · 25 m/s · 1 Hz · GROUND TRUTH 500000.0');
+}
+
 void main() {
   cleanDrive();
   parked();
   tunnel();
   tunnelVarying();
+  mountainHairpins();
+  stopStartTraffic();
+  multiTunnel();
+  urbanCanyon();
+  longDrive();
   stdout.writeln('\ndegPerMetre = $kDegPerMetre  (R = $kEarthRadiusM m)');
 }
