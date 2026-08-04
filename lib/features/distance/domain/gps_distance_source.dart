@@ -95,7 +95,12 @@ class GpsDistanceSource {
       timestamp: s.timestamp,
       meters: moved,
       dt: Duration(milliseconds: dtMs),
-      speedMps: s.speedMps.isFinite && s.speedMps >= 0 ? s.speedMps : impliedSpeed,
+      // SPEC-v2 §7.1: the GNSS Doppler speed is the primary source, and
+      // differentiating positions is the FALLBACK, used only when the receiver
+      // reported something unusable — negative, non-finite, or with an accuracy
+      // worse than 2 m/s. Doppler is measured independently of position and is
+      // materially better than a difference quotient at a 1 Hz update rate.
+      speedMps: s.hasValidDopplerSpeed ? s.speedMps : impliedSpeed,
       source: DistanceSource.gps,
     );
   }

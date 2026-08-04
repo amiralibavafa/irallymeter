@@ -269,22 +269,37 @@ Google Play and the App Store both scrutinise background-location requests made 
 prior context. `POST_NOTIFICATIONS` is also requested cold, and denying it is what
 `AndroidManifest.xml`'s own comment warns will silently kill the position stream.
 
-### F7 — Speed reads 0 while the trip counter climbs (D1, demonstrated)
+### F7 — RETRACTED. The screenshot showed correct behaviour.
 
-Live proof of the D1 dead-fallback analysis. Feeding position-only fixes via
-`adb emu geo fix` (which supplies no Doppler velocity) produced, simultaneously, on one
-screen (`/tmp/shots/05-after-drive.png`):
+**This finding was wrong and is withdrawn. Recorded rather than deleted, because the
+reasoning error is worth keeping.**
 
-| Readout | Value |
-|---|---|
-| **CURRENT SPEED** | **0 km/h** |
-| AVG SPEED | 43 km/h |
-| TRIP A / TRIP B | 0.61 km |
-| ODO | 614 m |
+The claim was that `/tmp/shots/05-after-drive.png` — `CURRENT SPEED 0 km/h` beside
+`AVG SPEED 43 km/h`, `TRIP A/B 0.61 km`, `ODO 614 m` — proved the D1 dead fallback on the
+instrument face.
 
-The instrument contradicts itself on its own face. For a product whose stated philosophy is
-"the user should trust the numbers displayed by the application", this is the single most
-damaging symptom in the audit, and §7.1's fallback is exactly the fix.
+It proved nothing of the sort. **The display has its own, working, position-differentiation
+fallback** at `lib/features/gps/presentation/providers/gps_providers.dart:53-63`, with a
+comment from the author naming this exact scenario: *"the Android emulator and some real GPS
+chips never supply a speed value, so without this the readout would sit at 0 even while
+moving."*
+
+What actually happened: `adb emu geo fix` sets a **persistent** location, which the emulator
+then re-reports at 1 Hz forever. Once the drive loop stopped, every subsequent fix carried
+the *same* coordinates → zero displacement → derived speed 0 → the readout decayed to 0 and
+stayed there. The 43 km/h average was historical, over the leg that had been driven. **The
+vehicle had stopped. The instrument was correct.**
+
+The error was reading a screenshot taken *after* the stimulus ended as though it were taken
+during. A dashboard showing 0 for a stationary car is the whole point of §6.1.
+
+**D1 remains a real gap** — see the D1 section — but the defect is narrower and lives
+elsewhere: `speedAccuracy` is never consulted, and the *distance source's* fallback (as
+opposed to the display's) was genuinely unreachable. Its consequence is not a cosmetic
+readout but `DistanceDelta.speedMps`, which is what seeds the tunnel entry anchor — on a
+Doppler-less device that anchor was `0`, so a car entering a tunnel would coast at a
+standstill and measure nothing for the whole blackout. That is covered by
+`test/speed_source_test.dart:10`.
 
 ---
 

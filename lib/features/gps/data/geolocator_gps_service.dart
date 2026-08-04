@@ -98,7 +98,12 @@ class GeolocatorGpsService implements GpsRepository {
       timestamp: p.timestamp,
       latitude: p.latitude,
       longitude: p.longitude,
-      speedMps: p.speed.isFinite && p.speed >= 0 ? p.speed : 0,
+      // Raw, including negative and NaN — SPEC-v2 §7.1 needs to SEE an
+      // unusable reading in order to fall back to differentiating positions.
+      // This previously coerced bad values to 0, which made them
+      // indistinguishable from a real standstill and left the fallback dead.
+      speedMps: p.speed,
+      speedAccuracyMps: p.speedAccuracy,
       headingDeg: p.heading.isFinite ? p.heading : double.nan,
       accuracyM: p.accuracy,
       altitudeM: p.altitude,
