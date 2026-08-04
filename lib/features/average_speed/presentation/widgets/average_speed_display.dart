@@ -35,7 +35,15 @@ class AverageSpeedDisplay extends ConsumerWidget {
     };
 
     return InstrumentBox(
-      label: 'AVG SPEED',
+      // SPEC-v2 §8 names two averages — moving (excluding stops) and overall
+      // (including stops) — and requires the app to "make clear which one is
+      // displayed". This is the OVERALL average: AverageSpeedCalculator accrues
+      // time on every accepted delta, including while the car is stationary, so
+      // the figure decays the longer you sit still. An unlabelled "AVG SPEED"
+      // left a co-driver unable to tell which of the two they were reading,
+      // which on a pace-keeping instrument is the difference between being on
+      // time and being early.
+      label: 'AVG (ALL)',
       onTap: () => ref.read(averageSpeedProvider.notifier).reset(),
       child: Row(
         // Shrink-wrap: InstrumentBox scales the value area to fit the tile.
