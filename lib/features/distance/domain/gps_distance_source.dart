@@ -34,7 +34,19 @@ import 'distance_delta.dart';
 /// Pure Dart — no plugin imports, no wall clock. Timing comes from the fix
 /// timestamps, so replaying a log gives identical results.
 class GpsDistanceSource {
+  /// The DISTANCE anchor. Held in place whenever a displacement is swallowed by
+  /// the noise floor, so small real movements accumulate instead of being
+  /// discarded — see the gate below.
   GpsSample? _last;
+
+  /// The timestamp of the PREVIOUS SAMPLE, which advances on every accepted fix
+  /// whether or not distance was banked.
+  ///
+  /// These are two different clocks and conflating them double-counts elapsed
+  /// time: with the anchor held, consecutive deltas would each report the span
+  /// back to the anchor, so a stationary car's average-speed integrator would
+  /// accrue six seconds of "elapsed" for four seconds of wall clock.
+  DateTime? _lastSampleAt;
 
   /// Speed of the last accepted pair (m/s). Used only by §6.1 rule 4, to judge
   /// what displacement the NEXT fix should plausibly show. Reset to 0 whenever
@@ -64,15 +76,22 @@ class GpsDistanceSource {
     final prev = _last;
     if (prev == null) {
       _last = s;
+      _lastSampleAt = s.timestamp;
       _lastSpeedMps = 0;
       return null; // First usable fix only anchors.
     }
 
+    // Span back to the ANCHOR — this is the interval the displacement covers.
     final dtMs = s.timestamp.difference(prev.timestamp).inMilliseconds;
+    // Span back to the PREVIOUS SAMPLE — this is the interval of real time this
+    // fix represents, and it is what the delta reports.
+    final sampleDtMs =
+        s.timestamp.difference(_lastSampleAt ?? prev.timestamp).inMilliseconds;
     // Out-of-order, zero, or post-dropout gap → re-anchor without integrating.
     if (dtMs <= 0 ||
         dtMs > AppConstants.gpsStaleTimeout.inMilliseconds * 3) {
       _last = s;
+      _lastSampleAt = s.timestamp;
       _lastSpeedMps = 0;
       return null;
     }
@@ -88,6 +107,7 @@ class GpsDistanceSource {
     // (> ~324 km/h implies a bad fix, not real movement) — exclude entirely.
     if (!meters.isFinite) {
       _last = s;
+      _lastSampleAt = s.timestamp;
       _lastSpeedMps = 0;
       return null;
     }
@@ -95,6 +115,7 @@ class GpsDistanceSource {
     final impliedSpeed = meters / dtSec;
     if (impliedSpeed > 90.0) {
       _last = s;
+      _lastSampleAt = s.timestamp;
       _lastSpeedMps = 0;
       return null;
     }
@@ -119,7 +140,9 @@ class GpsDistanceSource {
       return null;
     }
 
-    _last = s;
+    // NOTE: the anchor is deliberately NOT advanced here. See the noise gate
+    // below — a fix whose displacement is swallowed by the noise floor must
+    // leave the anchor where it is, or that movement is discarded forever.
 
     // The speed this pair actually happened at (§7.1: Doppler first).
     //
@@ -153,10 +176,38 @@ class GpsDistanceSource {
     final moving = validSpeed >= AppConstants.movingThresholdMps;
     final moved = (moving && meters >= noiseFloor) ? meters : 0.0;
 
+    // ## The anchor only advances when the distance was actually banked
+    //
+    // This is the difference between rule 3 filtering noise and rule 3
+    // DESTROYING data, and getting it wrong is catastrophic at high fix rates.
+    //
+    // Re-anchoring on every fix means a displacement below the floor is thrown
+    // away and the next fix measures from the new position — so the movement is
+    // gone for good. Since the floor is the fix's own accuracy, that rejects
+    // every fix where `speed / fixRate < accuracy`:
+    //
+    //     1 Hz,  5 m accuracy  -> everything below  18 km/h discarded
+    //     5 Hz,  5 m accuracy  -> everything below  90 km/h discarded
+    //     5 Hz,  8 m accuracy  -> everything below 144 km/h discarded
+    //
+    // The app REQUESTS 5 Hz (`AppConstants.gpsInterval` = 200 ms). On a chip
+    // that honours it, the old behaviour measured NOTHING below 90 km/h. It
+    // survived only because most Android chips deliver 1 Hz — a faster receiver
+    // made the app worse, which is exactly backwards.
+    //
+    // Holding the anchor instead lets small real movements ACCUMULATE until
+    // they clear the floor, then banks them in one go. The long-run rate is
+    // correct at any fix rate, and the anti-drift property is not just kept but
+    // improved: a parked car's wander is bounded by its own error box when
+    // measured from a fixed point, whereas summing consecutive pairs is a
+    // random walk that grows without bound.
+    if (moved > 0) _last = s;
+    _lastSampleAt = s.timestamp;
+
     return DistanceDelta(
       timestamp: s.timestamp,
       meters: moved,
-      dt: Duration(milliseconds: dtMs),
+      dt: Duration(milliseconds: sampleDtMs),
       // SPEC-v2 §7.1: the GNSS Doppler speed is the primary source, and
       // differentiating positions is the FALLBACK, used only when the receiver
       // reported something unusable — negative, non-finite, or with an accuracy
@@ -177,6 +228,7 @@ class GpsDistanceSource {
   /// a perfectly ordinary — and very fast — increment.
   void reanchor(GpsSample s) {
     _last = s;
+    _lastSampleAt = s.timestamp;
     // The blackout invalidates the speed baseline too: judging the first fix
     // after a tunnel against the speed from before it would reject a perfectly
     // good recovery fix.
@@ -186,6 +238,7 @@ class GpsDistanceSource {
   /// Forget the anchor (start a fresh leg).
   void reset() {
     _last = null;
+    _lastSampleAt = null;
     _lastSpeedMps = 0;
   }
 }

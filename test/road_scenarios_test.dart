@@ -60,27 +60,28 @@ void main() {
       expect(r.wentBackwards, isFalse);
     });
 
-    test('05 · REAL COST: §6.1 rule 3 discards genuinely slow movement', () {
-      // Measured -5.04 %: 144 m short over 2856 m, and the cause is exact.
+    test('05 · slow ramps are now measured, not discarded', () {
+      // THIS TEST FOUND A SEVERE BUG, AND NOW GUARDS THE FIX.
       //
-      // §6.1 rule 3 ignores "displacement smaller than the fix's own accuracy".
-      // On a 5 m fix that means every second spent below 5 m/s is discarded —
-      // here the 2 m/s and 4 m/s steps at each end of every acceleration and
-      // deceleration ramp. 6 m lost pulling away + 6 m lost stopping, twelve
-      // times, is 144 m. The arithmetic matches the measurement exactly.
+      // It originally measured -5.04 % here: 144 m short over 2856 m, because
+      // §6.1 rule 3's floor was applied by RE-ANCHORING on every fix. Any
+      // displacement smaller than the fix's own accuracy was thrown away
+      // permanently, so every second spent below 5 m/s on a 5 m fix vanished —
+      // 6 m pulling away plus 6 m stopping, twelve times.
       //
-      // This is the RULE WORKING AS SPECIFIED, and it is the same rule that
-      // took the parked-car case from 2555 m of drift to 0.000. It is a real
-      // trade-off in the spec, not a defect in this implementation — recorded
-      // so nobody "fixes" it by weakening the gate that makes T2 pass.
+      // The general-scenario suite then showed how bad that really was: the
+      // threshold is `speed < accuracy * fixRate`, so at the 5 Hz the app
+      // ACTUALLY REQUESTS it discarded everything below 90 km/h. A faster
+      // receiver made the app measure less.
+      //
+      // Holding the anchor when the floor rejects lets small real movements
+      // accumulate until they clear it. -5.04 % -> -0.12 %.
       final r = replay('stop_start_traffic.jsonl');
-      final shortfall = 2856.0 - r.totalMeters;
-      expect(shortfall, greaterThan(100.0),
-          reason: 'if this ever stops being true the gate has changed — check '
-              'T2 (parked 10 min) has not regressed');
-      expect(r.errorFraction(2856.0), lessThanOrEqualTo(0.06),
+      expect(r.errorFraction(2856.0), lessThanOrEqualTo(0.01),
           reason: 'measured ${r.totalMeters.toStringAsFixed(1)} m against '
-              '2856.0 m. Stop-start traffic under-reads by about 5 %');
+              '2856.0 m — slow acceleration ramps are being discarded again');
+      expect(r.totalMeters, lessThanOrEqualTo(2856.0),
+          reason: 'and it must still never read LONG');
     });
   });
 
@@ -139,7 +140,12 @@ void main() {
 
     test('12 · an urban canyon stays inside §19\'s 1 % trip-distance target',
         () {
-      // FAILS AT -16.66 %, AND IT IS RECORDED AT FULL STRENGTH ON PURPOSE.
+      // WAS -16.66 %, NOW -12.50 %, AND STILL RECORDED AT FULL STRENGTH.
+      //
+      // The anchor fix (see S2 test 05) recovered about a quarter of the loss.
+      // What remains is a DIFFERENT mechanism: when accuracy breathes past the
+      // integrable limit the engine drops into Estimation Mode and coasts at
+      // v0, and a coast cannot track speed changes it is not told about.
       //
       // Cause, and it is the same rule as test 05: §6.1 rule 3 ignores any
       // displacement smaller than the fix's own accuracy. At 18 m/s the car
@@ -154,13 +160,14 @@ void main() {
       // loosening it without a decision would trade a visible 16 % under-read
       // for an invisible parked-drift regression.
       //
-      // Unskip this when §6.1 rule 3 has been ruled on. Do not weaken it.
+      // Unskip when the degraded-reception path has been ruled on. Do not
+      // weaken it.
       final r = replay('urban_canyon.jsonl');
       expect(r.errorFraction(5400.0), lessThanOrEqualTo(0.010),
           reason: 'measured ${r.totalMeters.toStringAsFixed(1)} m against '
               '5400.0 m of real travel');
-    }, skip: 'SPEC-v2 §6.1 rule 3 trade-off, unresolved — see the comment. '
-        'Measured -16.66 %. Never weaken this assertion.');
+    }, skip: 'Degraded-reception under-read, unresolved — see the comment. '
+        'Improved -16.66 % -> -12.50 % by the anchor fix. Never weaken this.');
   });
 
   group('S5 · 500 km — float accumulation', () {

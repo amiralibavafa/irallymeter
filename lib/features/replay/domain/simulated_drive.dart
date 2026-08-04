@@ -26,64 +26,59 @@ import '../../gps/domain/gps_sample.dart';
 /// Emission is in WALL-CLOCK time, unlike the headless player which runs as
 /// fast as it can. Watching it is the entire point.
 class SimulatedDrive {
-  /// Metres north of the origin, and the speed, at [t] seconds.
+  /// **The Niayesh Tunnel, Tehran** — 6 658 m, the longest urban tunnel in the
+  /// Middle East, driven west→east at 60 km/h.
   ///
-  /// Piecewise-constant acceleration, integrated in closed form — the same
-  /// profile and the same exactness as the committed fixture.
+  /// Real coordinates on a real corridor (Niayesh Highway to Sadr Highway,
+  /// north Tehran) so the map shows the car entering one portal and leaving the
+  /// other. The portals are corridor endpoints derived from the published
+  /// length and route, **not surveyed positions** — the length and the transit
+  /// time are exact, the pin is approximate to a few hundred metres.
   ///
-  ///   0–30 s   GPS on    15 → 25 m/s
-  ///   30–110 s DARK      25 → 20 → 25 m/s
-  ///   110–140s GPS on    25 m/s
-  static const List<List<double>> _segments = [
-    [30, 15.0, 1.0 / 3.0],
-    [20, 25.0, -0.25],
-    [40, 20.0, 0.0],
-    [20, 20.0, 0.25],
-    [30, 25.0, 0.0],
-  ];
+  /// This tunnel is the reason `[3.13]` exists: at 60 km/h it takes **399.5 s**,
+  /// and `maxTunnelDuration` used to be a flat 300 s, so the app would have
+  /// called it a suspended process and silently refused to reconcile it.
+  ///
+  /// The blackout here is **real silence with location services still enabled**,
+  /// which is what a tunnel actually is. Cutting Android's location services
+  /// instead is a different scenario entirely (the user switching GPS off) and
+  /// conflating the two sent an earlier round of testing chasing the wrong bug.
+  static const double lat = 35.7745;
+  static const double westPortalLon = 51.3860;
+  static const double eastPortalLon = 51.459718;
+  static const double tunnelMetres = 6658.0;
 
-  static const double darkFromS = 30;
-  static const double darkToS = 110;
-  static const double totalS = 140;
+  /// Metres per degree of longitude at [lat].
+  static const double _mPerDegLon = 90316.6;
 
-  /// Tehran, which is where this ships.
-  static const double startLat = 35.6892;
-  static const double startLon = 51.3890;
-  static const double _degPerMetre = 8.993216059187306e-6;
+  static const double speedMps = 60 / 3.6; // 60 km/h
 
-  static double distanceAt(double t) {
-    var d = 0.0, elapsed = 0.0;
-    for (final s in _segments) {
-      if (t <= elapsed) break;
-      final dt = (t - elapsed) < s[0] ? (t - elapsed) : s[0];
-      d += s[1] * dt + 0.5 * s[2] * dt * dt;
-      elapsed += s[0];
-    }
-    return d;
+  /// 60 s on the approach, the tunnel, then 60 s out the far side.
+  static const double approachS = 60;
+  static double get tunnelS => tunnelMetres / speedMps; // 399.5
+  static const double exitS = 60;
+  static double get totalS => approachS + tunnelS + exitS;
+
+  /// Distance travelled by time [t], in metres from the start of the approach.
+  static double distanceAt(double t) => speedMps * t.clamp(0, totalS);
+
+  /// True while the car is between the portals — GPS emits NOTHING here.
+  static bool isDark(double t) => t > approachS && t < approachS + tunnelS;
+
+  /// Longitude at time [t]. The car starts [approachS] worth of driving west of
+  /// the west portal and ends [exitS] east of the east portal.
+  static double lonAt(double t) {
+    final metresFromWestPortal = distanceAt(t) - speedMps * approachS;
+    return westPortalLon + metresFromWestPortal / _mPerDegLon;
   }
 
-  static double speedAt(double t) {
-    var elapsed = 0.0;
-    for (final s in _segments) {
-      if (t < elapsed + s[0]) return s[1] + s[2] * (t - elapsed);
-      elapsed += s[0];
-    }
-    return _segments.last[1];
-  }
+  /// Constant speed: the accelerometer contributes nothing, so this exercises
+  /// §12.1's coast-at-v0 model — the conservative case. The varying-speed case
+  /// that exercises §12.2 lives in `tunnel_varying.jsonl`.
+  static double accelAt(double t) => 0.0;
 
-  static double accelAt(double t) {
-    var elapsed = 0.0;
-    for (final s in _segments) {
-      if (t < elapsed + s[0]) return s[2];
-      elapsed += s[0];
-    }
-    return 0.0;
-  }
+  static double speedAt(double t) => speedMps;
 
-  /// True while the simulated vehicle is inside the blackout.
-  static bool isDark(double t) => t > darkFromS && t < darkToS;
-
-  static double latAt(double t) => startLat + distanceAt(t) * _degPerMetre;
 }
 
 /// Feeds [SimulatedDrive] fixes in place of the receiver. Emits NOTHING through
@@ -112,11 +107,11 @@ class SimulatedGpsRepository implements GpsRepository {
         if (SimulatedDrive.isDark(t)) continue;
         yield GpsSample(
           timestamp: DateTime.now(),
-          latitude: SimulatedDrive.latAt(t),
-          longitude: SimulatedDrive.startLon,
+          latitude: SimulatedDrive.lat,
+          longitude: SimulatedDrive.lonAt(t),
           speedMps: SimulatedDrive.speedAt(t),
           speedAccuracyMps: 0.5,
-          headingDeg: 0,
+          headingDeg: 90, // due east, along the corridor
           accuracyM: 5,
           altitudeM: 1200,
           hasFix: true,
@@ -137,7 +132,7 @@ class SimulatedMotionRepository implements MotionRepository {
   Stream<MotionSample> motionStream() async* {
     do {
       // 20 Hz, matching the fixture.
-      for (var ms = 0; ms <= SimulatedDrive.totalS * 1000; ms += 50) {
+      for (var ms = 0; ms <= SimulatedDrive.totalS.toInt() * 1000; ms += 50) {
         await Future<void>.delayed(const Duration(milliseconds: 50));
         yield MotionSample(
           timestamp: DateTime.now(),

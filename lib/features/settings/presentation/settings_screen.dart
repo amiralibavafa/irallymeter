@@ -75,10 +75,11 @@ class SettingsScreen extends ConsumerWidget {
             const Padding(
               padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
               child: Text(
-                '140 s loop: 30 s climbing to 90 km/h, then an 80 s blackout '
-                'where the car slows to 72 and speeds back up, then 30 s clean. '
-                'Watch the digits go amber, the EST badge appear, and the '
-                'recovery blend in without a jump.',
+                'Drives the REAL Niayesh Tunnel, Tehran (6 658 m) west to east '
+                'at 60 km/h: 60 s approach, then 399 s of genuine GPS silence '
+                'between the portals, then 60 s out the far side. Open the map '
+                'to watch it enter one portal and leave the other. Trip should '
+                'gain about 6.66 km through the dark.',
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
               ),
             ),
