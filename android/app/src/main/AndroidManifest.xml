@@ -2,8 +2,17 @@
     <!-- GPS / location -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    <!-- Keep tracking trip/stage when backgrounded / screen off -->
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <!-- Keep tracking trip/stage when backgrounded / screen off. This is done by
+         the FOREGROUND SERVICE below, NOT by ACCESS_BACKGROUND_LOCATION.
+
+         That permission was declared here and never once requested: nothing in
+         lib/ calls Permission.locationAlways, and ensurePermission() only calls
+         Geolocator.requestPermission(), which asks for FOREGROUND location. A
+         declared-but-never-granted permission confers no capability, so removing
+         it cannot change what the app can do — it only removes the obligation to
+         justify one of the most heavily scrutinised permissions on both stores.
+         Re-add it ONLY alongside a real runtime request and its own rationale.
+         See docs/SECURITY-REVIEW.md S1. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>

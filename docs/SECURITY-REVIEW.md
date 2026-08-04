@@ -5,13 +5,13 @@ where it goes, and what it asks for.
 
 ## Verdict
 
-**Clean, with one thing to fix and two to be aware of.** There is no telemetry,
+**Clean. The one thing to fix is now FIXED; two remain worth being aware of.** There is no telemetry,
 no analytics SDK, no crash reporter, and no account. Location never leaves the
 device except implicitly, via map tile requests.
 
 ---
 
-## S1 · `ACCESS_BACKGROUND_LOCATION` is declared but never requested — FIX
+## S1 · `ACCESS_BACKGROUND_LOCATION` declared but never requested — **FIXED**
 
 `AndroidManifest.xml` declares it. Nothing in `lib/` ever requests it:
 `Permission.locationAlways` appears nowhere, and `ensurePermission()` only calls
@@ -26,9 +26,21 @@ Two consequences:
 * **It does not do what the manifest implies.** Background tracking currently
   works through the **foreground service**, not through this permission.
 
-**Either request it properly with a rationale (see `P3`), or remove it.** My
-recommendation is remove it: the foreground service already delivers screen-off
-tracking, which is what a rally actually needs.
+**FIXED 2026-08-04: removed from the manifest.** The foreground service already
+delivers screen-off tracking, which is what a rally actually needs.
+
+Safe by construction rather than by argument: a permission that is declared but
+never requested is never granted, and an ungranted permission confers no
+capability — so removing it cannot change runtime behaviour. What it does remove
+is the obligation to justify one of the most heavily scrutinised permissions on
+either store. Re-add it ONLY together with a real runtime request and its own
+rationale screen.
+
+**Verified after the change:** release APK builds, installs, and streams
+position normally (`GPS ±5m`). Screen-off tracking over a long drive is
+`docs/ROAD-TEST.md` item 9 and remains unverified on hardware — as it was before
+this change, for the same reason: the foreground service, not this permission,
+is what makes it work.
 
 ## S2 · Map tiles disclose position to a third party — BE AWARE
 
