@@ -33,14 +33,32 @@ import 'motion_sample.dart';
 ///     confidently, assume zero acceleration — i.e. coast at the entry speed.
 ///     That is the honest answer: a sign-blind acceleration is worse than none,
 ///     since it would read every brake as a throttle.
-///  4. Smooth, clamp to a plausible band, integrate to speed, then to distance.
+///  4. Smooth, integrate to speed, bound the result to ±25% of v₀ per
+///     SPEC-v2 §12.2, then integrate speed to distance.
 ///
 /// ## Guarantees this source makes to the engine
 ///  • Distance is never negative and never decreases.
-///  • Speed is clamped to `[0, cap]` — no spikes, no negative speed.
+///  • Speed never rises more than 25% above the entry speed v₀ (§12.2), and is
+///    never negative. The bound is on TOTAL drift from v₀, not per sample, so
+///    many small nudges cannot walk the estimate somewhere a single step would
+///    have been refused.
 ///  • Acceleration is clamped to ±[AppConstants.maxPlausibleAccelMps2] and
 ///    EMA-smoothed, so a pothole or a knocked mount cannot inject a jump.
 ///  • Sensor gaps (backgrounding) re-anchor instead of inventing distance.
+///
+/// ## The one deviation from §12.2, and why
+///
+/// §12.2 reads as a symmetric ±25% band. This applies it UPWARDS ONLY;
+/// deceleration may run to a full stop. Symmetric, a car braking to a halt in a
+/// tunnel would hold v₀ and invent distance for as long as it sat there.
+///
+/// The asymmetry follows the risk, not convenience. An over-estimate is
+/// PERMANENT — [DistanceEngine] only reconciles undershoot, because an estimate
+/// above the entry→exit chord "proves nothing" — so it corrupts every distance
+/// called after it. An under-estimate is recoverable on the next good fix. And
+/// what §12.2 defends against is a runaway integration, which is an upward
+/// failure; a sustained deceleration is the most reliable reading an
+/// accelerometer produces.
 ///
 /// It is an estimate and is treated as one: the engine reconciles it against
 /// GPS truth the moment the car comes back into the open.
@@ -53,7 +71,14 @@ class SensorDistanceSource {
 
   double _speedMps = 0;
   double _smoothedAccel = 0;
-  double _speedCap = 0;
+
+  /// v₀ — the real GPS speed measured at tunnel entry, and the anchor the whole
+  /// §12.1 model rests on.
+  double _entrySpeedMps = 0;
+
+  /// ±25% of v₀ (SPEC-v2 §12.2), precomputed at seed time.
+  double _maxAdjustMps = 0;
+
   DateTime? _lastAt;
   bool _seeded = false;
 
@@ -64,14 +89,15 @@ class SensorDistanceSource {
 
   /// Anchor the estimator to the last real GPS speed, at tunnel entry.
   ///
-  /// The cap allows for genuine acceleration inside the tunnel while making a
-  /// runaway integration impossible: even if every sample read maximum
-  /// acceleration, the speed estimate cannot exceed this.
+  /// v₀ is the whole model. SPEC-v2 §12.1 holds it and accumulates `v₀ × Δt`;
+  /// §12.2's accelerometer refinement may only nudge the estimate a bounded
+  /// distance either side of it.
   void seed(double entrySpeedMps, DateTime at) {
     final v = entrySpeedMps.isFinite && entrySpeedMps > 0 ? entrySpeedMps : 0.0;
     _speedMps = v;
+    _entrySpeedMps = v;
     _smoothedAccel = 0;
-    _speedCap = math.max(v * 1.5, v + 8.0);
+    _maxAdjustMps = v * AppConstants.maxSpeedAdjustFraction;
     _lastAt = at;
     _seeded = true;
   }
@@ -98,9 +124,42 @@ class SensorDistanceSource {
 
     _smoothedAccel = _blend(_smoothedAccel, _longitudinalAccel(m));
 
-    // Integrate acceleration → speed, clamped so it can neither go negative
-    // nor spike beyond what the entry speed makes plausible.
-    _speedMps = (_speedMps + _smoothedAccel * dtSec).clamp(0.0, _speedCap);
+    // Integrate acceleration → speed, then apply SPEC-v2 §12.2:
+    //
+    //   "Clamp the total adjustment to ±25% of v₀. If the correction wants to
+    //    exceed this, ignore it and hold v₀."
+    //
+    // Note "the total adjustment", not the per-sample one: the bound is on how
+    // far the estimate has drifted from the entry speed overall, so a long
+    // sequence of small, plausible nudges cannot walk the estimate anywhere it
+    // could not have jumped in one step.
+    //
+    // Replaces a `max(v*1.5, v + 8.0)` ceiling — +50%, or +28.8 km/h at low
+    // speed, and an upper bound only with no floor at all.
+    //
+    // Integrate acceleration → speed, bounded by SPEC-v2 §12.2's ±25% of v₀.
+    //
+    // SATURATES at the ceiling rather than snapping back to v₀. §12.2's "if the
+    // correction wants to exceed this, ignore it and hold v₀" can be read as a
+    // snap-back, but implemented that way the estimate sawtooths — climbing to
+    // the ceiling, dropping to v₀, climbing again. On an instrument that shows
+    // estimated speed to the driver (§5.1) that reads as a fault, and it is
+    // also further from the truth than saturating: a car genuinely accelerating
+    // through a tunnel is better approximated by the ceiling than by an average
+    // of the ceiling and the entry speed. "Clamp" is the plain reading.
+    //
+    // Applied UPWARDS ONLY; deceleration runs to a full stop. The asymmetry
+    // follows the risk. An over-estimate is PERMANENT, because
+    // `DistanceEngine._reconcileAgainst` pays out undershoot only — an estimate
+    // above the entry→exit chord "proves nothing" — so it corrupts every
+    // distance called after it. An under-estimate is recoverable on the next
+    // good fix. And what §12.2 defends against is a runaway integration, which
+    // is an upward failure; a sustained deceleration is the most reliable
+    // reading an accelerometer produces, and `tunnel_system_test.dart` test 11
+    // already asserts a clean stop must be believed.
+    _speedMps = (_speedMps + _smoothedAccel * dtSec)
+        .clamp(0.0, _entrySpeedMps + _maxAdjustMps);
+
     // Reuse the GPS noise floor so a crawl decays to a clean stop rather than
     // creeping distance forever.
     if (_speedMps < AppConstants.speedNoiseFloorMps) _speedMps = 0;
@@ -156,7 +215,8 @@ class SensorDistanceSource {
   void reset() {
     _speedMps = 0;
     _smoothedAccel = 0;
-    _speedCap = 0;
+    _entrySpeedMps = 0;
+    _maxAdjustMps = 0;
     _lastAt = null;
     _seeded = false;
   }

@@ -89,6 +89,12 @@ class AppConstants {
   /// knocked in its mount) can never inject a speed jump.
   static const double maxPlausibleAccelMps2 = 4.0;
 
+  /// SPEC-v2 §12.2: how far the accelerometer refinement may move the estimated
+  /// speed away from the entry speed v₀, as a fraction of v₀. "Clamp the total
+  /// adjustment to ±25% of v₀. If the correction wants to exceed this, ignore
+  /// it and hold v₀."
+  static const double maxSpeedAdjustFraction = 0.25;
+
   /// EMA smoothing for the sensor-estimated acceleration before integration.
   /// Low = heavily smoothed; raw phone accelerometers are far too noisy to
   /// integrate directly.
