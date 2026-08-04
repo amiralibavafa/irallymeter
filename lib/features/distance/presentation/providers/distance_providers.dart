@@ -11,11 +11,17 @@ import '../../domain/distance_engine.dart';
 import '../../domain/distance_engine_state.dart';
 import '../../domain/measurement_status.dart';
 import '../../domain/motion_repository.dart';
+import '../../../replay/domain/simulated_drive.dart';
+import '../../../replay/presentation/simulation_provider.dart';
 import '../../domain/motion_sample.dart';
 
 /// DI seam: swap for a fake motion source in tests or simulation mode — the
 /// same pattern [gpsRepositoryProvider] uses.
 final motionRepositoryProvider = Provider<MotionRepository>((ref) {
+  // See gpsRepositoryProvider: the simulated drive has to replace BOTH sources
+  // or the engine would be handed real accelerometer noise from a stationary
+  // desk while being told it is doing 90 km/h through a tunnel.
+  if (simulationActiveRef(ref)) return SimulatedMotionRepository();
   final service = SensorsMotionService();
   ref.onDispose(service.dispose);
   return service;

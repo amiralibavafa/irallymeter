@@ -8,9 +8,18 @@ import '../../data/geolocator_gps_service.dart';
 import '../../domain/gps_repository.dart';
 import '../../domain/gps_sample.dart';
 import '../../domain/gps_state.dart';
+import '../../../replay/domain/simulated_drive.dart';
+import '../../../replay/presentation/simulation_provider.dart';
 
 /// DI seam: swap for a mock/replay repository in tests or simulation mode.
+///
+/// SPEC-v2 §20.1's debug-menu option is exactly this seam being used: when
+/// simulation is on, the whole app is fed a synthesised drive with a real
+/// blackout in it, so a tunnel can be WATCHED rather than only asserted about.
+/// Guarded by `kDebugMode` inside [simulationActiveRef] — the release compiler
+/// drops the simulated source rather than merely hiding the switch.
 final gpsRepositoryProvider = Provider<GpsRepository>((ref) {
+  if (simulationActiveRef(ref)) return SimulatedGpsRepository();
   return GeolocatorGpsService();
 });
 

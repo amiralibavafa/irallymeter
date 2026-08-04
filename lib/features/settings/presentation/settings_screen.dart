@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_clock.dart';
+import '../../replay/presentation/simulation_provider.dart';
 import '../../route_log/domain/route_session.dart';
 import '../../route_log/presentation/providers/gpx_providers.dart';
 import '../../route_log/presentation/providers/route_log_providers.dart';
@@ -57,6 +59,30 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const _SectionTitle('ROUTE SESSIONS'),
           _SessionsSection(),
+          // SPEC-v2 §20.1's debug-menu option. Debug builds only — this swaps
+          // the GPS and motion sources under the whole app, and a rally
+          // computer that can be talked into inventing its own position is not
+          // a rally computer. kDebugMode is a const, so this whole subtree is
+          // compiled out of a release build rather than merely hidden.
+          if (kDebugMode) ...[
+            const _SectionTitle('DEBUG'),
+            _SwitchRow(
+              label: 'Simulated drive (tunnel)',
+              value: ref.watch(simulationEnabledProvider),
+              onChanged: (v) =>
+                  ref.read(simulationEnabledProvider.notifier).state = v,
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
+              child: Text(
+                '140 s loop: 30 s climbing to 90 km/h, then an 80 s blackout '
+                'where the car slows to 72 and speeds back up, then 30 s clean. '
+                'Watch the digits go amber, the EST badge appear, and the '
+                'recovery blend in without a jump.',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              ),
+            ),
+          ],
         ],
       ),
     );
