@@ -182,18 +182,28 @@ iOS `activityType: automotiveNavigation`, `bestForNavigation`,
 
 ## Findings outside D1–D5
 
-### F1 — Android routes through Play Services fused location (high impact)
+### F1 — Android routes through Play Services fused location (medium impact)
 
-`geolocator_gps_service.dart:39` sets `forceLocationManager: false`, so Android uses the
-Google Play Services **FusedLocationProvider**. Two independent problems:
+`geolocator_gps_service.dart:39` sets `forceLocationManager: false`, so Android prefers the
+Google Play Services **FusedLocationProvider**.
 
-1. **§18.2 says it is wrong for this product:** "Fused location applies its own smoothing
-   and road snapping, which is helpful for navigation and wrong for measurement." A rally
-   meter that trusts road-snapped positions is measuring the map, not the car.
-2. **It is a hard dependency on Google Play Services**, which carries directly into the
-   Iran deployment question (Phase 2).
+**Corrected 2026-08-03 after testing it live.** The original draft of this finding claimed
+this was a hard break on Play-Services-less devices. **That is wrong.** Running the app on
+the `rally_aosp` emulator (AOSP `default` system image, no Play Services) produced:
 
-Spec §18.2 asks for this to be *evaluated during testing*, not assumed. Currently it is
+```
+W/GooglePlayServicesUtil: com.irallyclub.irallymeter requires the Google Play Store,
+                          but it is missing.
+```
+
+…and then GPS worked anyway — `GPS ±5m` green, distance accumulating normally. geolocator
+falls back to the platform `LocationManager` on its own. So the availability argument is a
+warning, not a failure, and the finding is downgraded from high to medium.
+
+**The reason to flip it stands, and it is the stronger one — §18.2's own words:** "Fused
+location applies its own smoothing and road snapping, which is helpful for navigation and
+wrong for measurement." A rally meter that trusts road-snapped positions is measuring the
+map, not the car. §18.2 asks for this to be *evaluated during testing*; today it is
 assumed, in the direction the spec warns against.
 
 ### F2 — §6.1 noise gating is not implemented as specified
@@ -220,11 +230,61 @@ existing suite does not currently prove this target.
 and thermal cost on a windscreen-mounted phone (Phase 4). Worth a deliberate decision
 rather than drift.
 
-### F4 — Pre-existing skipped test is a real UI defect
+### F4 — The skipped test is a live, visible defect (confirmed on device)
 
-`test/dashboard_layout_test.dart:85` — portrait overflows the top bar by ~142 px, skipped
-with a documented rationale. Recorded in `BASELINE.md`. Not Phase 3 scope; it is a Phase 4
-input because it collides head-on with the 44×44 pt touch-target requirement.
+`test/dashboard_layout_test.dart:85` — portrait overflows the top bar, skipped with a
+documented rationale. Recorded in `BASELINE.md`.
+
+**Confirmed live 2026-08-03**: at 1080×2400 (an ordinary phone), the running app renders a
+yellow-and-black `OVERFLOWED BY 70 PIXELS` banner across the top bar — see
+`/tmp/shots/04-after-restart.png` and `05-after-drive.png`. **This is not test debt; it
+ships.** Not Phase 3 scope, but a Phase 4 input, because it collides head-on with the
+44×44 pt touch-target requirement — the two constraints are precisely what conflict.
+
+### F5 — A fresh install hangs on the Flutter splash screen (high impact, NEW)
+
+Found by running the app, not by reading it. On first launch with no permissions yet
+granted:
+
+```
+E/flutter: Unhandled Exception: PlatformException(PermissionHandler.PermissionManager,
+  A request for permissions is already running, please wait for it to finish before
+  doing another request ...)
+```
+
+The app issues overlapping permission requests; the second throws, the exception is
+**unhandled**, and startup never completes — the app sits on the Flutter splash logo
+indefinitely (`/tmp/shots/03-dashboard.png`). Hot-restarting with permissions pre-granted
+boots straight to the dashboard (`04-after-restart.png`), which isolates the fault to the
+**first-run path** — i.e. every real user's first launch.
+
+Not one of D1–D5 and not in scope for Phase 3 as written, but it outranks most of the
+backlog: a rally computer that has to be launched twice is not shippable.
+
+### F6 — Both permission prompts appear cold (store-rejection risk, NEW)
+
+The location prompt (`/tmp/shots/00-baseline.png`) and the notifications prompt
+(`01-dashboard-first-fix.png`) are both raised with **no in-app rationale screen first**.
+Google Play and the App Store both scrutinise background-location requests made without
+prior context. `POST_NOTIFICATIONS` is also requested cold, and denying it is what
+`AndroidManifest.xml`'s own comment warns will silently kill the position stream.
+
+### F7 — Speed reads 0 while the trip counter climbs (D1, demonstrated)
+
+Live proof of the D1 dead-fallback analysis. Feeding position-only fixes via
+`adb emu geo fix` (which supplies no Doppler velocity) produced, simultaneously, on one
+screen (`/tmp/shots/05-after-drive.png`):
+
+| Readout | Value |
+|---|---|
+| **CURRENT SPEED** | **0 km/h** |
+| AVG SPEED | 43 km/h |
+| TRIP A / TRIP B | 0.61 km |
+| ODO | 614 m |
+
+The instrument contradicts itself on its own face. For a product whose stated philosophy is
+"the user should trust the numbers displayed by the application", this is the single most
+damaging symptom in the audit, and §7.1's fallback is exactly the fix.
 
 ---
 
