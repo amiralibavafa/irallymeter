@@ -61,21 +61,29 @@ class AppConstants {
   /// warning; recovery is still instant on the next fresh fix.
   static const int gpsDropoutConfirmTicks = 2;
 
-  /// A subscribed position stream that has delivered NOTHING for this long is
-  /// treated as dead and re-subscribed.
+  /// How often to check in on a position stream that is delivering nothing.
   ///
-  /// This is the fix for a bug found by driving a real tunnel on device: after
-  /// location services were toggled off and back on, the app sat in Estimation
-  /// Mode forever with a frozen trip counter. The emulator was delivering fixes
-  /// the whole time — a hot restart picked them up instantly — but the existing
-  /// self-healing loop only re-subscribes on an ERROR or on completion, and a
-  /// re-enabled location service leaves behind a stream that is alive and
-  /// SILENT. Silence has to count as a failure too.
+  /// This is a HEARTBEAT, not a timeout. **Silence is not failure — a tunnel is
+  /// silence**, and the whole product depends on surviving one. Each tick emits
+  /// a synthetic no-fix sample so the dashboard can show the gap, and leaves the
+  /// subscription completely untouched.
   ///
-  /// Comfortably longer than any legitimate gap: with distanceFilter 0 and a
-  /// 200 ms interval a healthy receiver emits constantly, and a real blackout
-  /// costs only a cheap re-subscribe.
-  static const Duration gpsSilenceResubscribe = Duration(seconds: 20);
+  /// An earlier attempt used a plain `.timeout()` here, which tore the stream
+  /// down every 20 s. On device that produced a `Stopping location service` /
+  /// `Start service in foreground mode` pair each time — roughly twenty
+  /// restarts of the Android foreground service inside one 400 s tunnel. That is
+  /// the exact service keeping the app alive in there, so the "fix" was more
+  /// dangerous than the bug.
+  static const Duration gpsSilenceCheck = Duration(seconds: 20);
+
+  /// Silence this long, with location services ENABLED the whole time, is
+  /// finally treated as a dead stream even without any other evidence.
+  ///
+  /// Deliberately longer than any real tunnel transit: Niayesh is 399 s at
+  /// 60 km/h and Lærdal about 1102 s at 80. One re-subscribe after ten minutes
+  /// is a rounding error; one every twenty seconds is a battery and reliability
+  /// problem.
+  static const Duration gpsSilenceHardLimit = Duration(minutes: 10);
 
   /// After the platform position stream errors or ends, wait this long before
   /// re-subscribing. Keeps the GPS engine self-healing instead of latching into

@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import '../../../core/constants/app_constants.dart';
 import '../domain/gps_repository.dart';
 import '../domain/gps_sample.dart';
+import '../domain/gps_stall_detector.dart';
 
 /// geolocator-backed implementation of [GpsRepository].
 ///
@@ -107,50 +108,96 @@ class GeolocatorGpsService implements GpsRepository {
       // source of truth; just skip the head-start.
     }
 
-    // Self-healing subscription loop. A platform position stream can error, end,
-    // or — the case that actually bit us — stay subscribed and go permanently
-    // SILENT. Instead of latching into "GPS LOST" until the app restarts, we
-    // emit a synthetic no-fix sample and re-subscribe after a short backoff.
+    // Self-healing subscription loop.
     //
-    // The `.timeout` is load-bearing, not defensive. Found on device by driving
-    // a real tunnel: after location services were switched off and back on, the
-    // app stayed in Estimation Mode with a frozen trip counter and a red EST?
-    // badge. The emulator was delivering fixes the entire time — a hot restart
-    // picked them up immediately — but this loop only re-entered on an error or
-    // on completion, and a re-enabled location service hands back a stream that
-    // is alive and emits nothing. `yield*` then parks here forever.
+    // ## Silence is NOT failure — a tunnel is silence
     //
-    // On a rally that is the worst possible failure: the trip counter silently
-    // stops and never comes back, and the co-driver has no way to recover it
-    // short of restarting the app mid-stage.
+    // This is the most important behaviour in the app and it is easy to get
+    // backwards. A position stream can fail in three different ways and only
+    // two of them justify touching the subscription:
+    //
+    //   1. it ERRORS            -> re-subscribe (foreground service refused, etc.)
+    //   2. it COMPLETES         -> re-subscribe
+    //   3. it goes QUIET        -> USUALLY A TUNNEL. Leave it alone.
+    //
+    // Case 3 has a genuine failure hiding inside it, found on device by driving
+    // the real Niayesh corridor: after location services were switched off and
+    // back on, the stream stayed subscribed and permanently silent, so the app
+    // sat in Estimation Mode with a frozen trip counter and a red EST? badge
+    // until it was restarted. On a rally that is the worst failure this app has.
+    //
+    // The first fix for it was a flat `.timeout()`, and it was WORSE than the
+    // bug: it tore the stream down every 20 s, and on device each teardown
+    // logged `Stopping location service` / `Start service in foreground mode` —
+    // about twenty restarts of the foreground service inside one 400 s tunnel.
+    // That service is what keeps the receiver alive in a tunnel in the first
+    // place.
+    //
+    // So the watchdog now needs EVIDENCE that the stream is dead, not merely
+    // evidence that it is quiet:
+    //
+    //   * location services were seen DISABLED and are now ENABLED -> dead,
+    //     re-subscribe (this is exactly the observed failure), or
+    //   * silence past `gpsSilenceHardLimit`, which is longer than any real
+    //     tunnel transit -> re-subscribe once as a backstop.
+    //
+    // In an ordinary tunnel neither fires, so the subscription and the
+    // foreground service are never touched.
     var background = true;
+    final stall = GpsStallDetector();
+    var servicesEnabled = true;
+
     while (true) {
       try {
+        stall.reset();
+
         yield* Geolocator.getPositionStream(
           locationSettings: buildSettings(background: background),
-        ).map(_toSample).timeout(AppConstants.gpsSilenceResubscribe);
+        ).map((p) {
+          stall.onData();
+          return _toSample(p);
+        }).timeout(
+          AppConstants.gpsSilenceCheck,
+          // Providing onTimeout means the stream KEEPS RUNNING. Nothing is torn
+          // down unless we deliberately push an error into the sink — which is
+          // what makes an ordinary tunnel free of side effects.
+          onTimeout: (sink) {
+            // Refresh the service state for the NEXT tick to judge on.
+            // `onTimeout` is synchronous and this probe is not; being one
+            // heartbeat late to notice a toggle is irrelevant against a 20 s
+            // cadence, and it keeps the decision itself pure and tested.
+            unawaited(Geolocator.isLocationServiceEnabled()
+                .then((v) => servicesEnabled = v)
+                .catchError((_) => servicesEnabled));
+
+            if (stall.onSilentTick(servicesEnabled: servicesEnabled)) {
+              sink.addError(StateError(
+                  'position stream stalled (${stall.silentFor.inSeconds}s '
+                  'silent, servicesToggled=${stall.sawServicesDisabled})'));
+              return;
+            }
+
+            // The ordinary tunnel path. Tell consumers there is a gap so the
+            // status bar can react instead of holding a stale value, and leave
+            // the subscription completely alone.
+            sink.add(GpsSample.noFix());
+          },
+        );
         // Stream completed normally (rare) — fall through and reconnect.
-      } on TimeoutException {
-        // SILENCE, not failure. This is the normal state inside a long tunnel,
-        // so it must NOT be treated like a foreground-service refusal: dropping
-        // the FGS here would mean every tunnel quietly cost us the background
-        // service that keeps the receiver alive with the screen off. Re-subscribe
-        // and keep asking for the same configuration.
-        // ignore: avoid_print
-        print('iRallyMeter: no fix for '
-            '${AppConstants.gpsSilenceResubscribe.inSeconds}s — re-subscribing…');
-        yield GpsSample.noFix();
       } catch (e) {
         // The foreground service can fail to start on Android 13+ when the
         // POST_NOTIFICATIONS permission is denied. Drop the FGS requirement for
-        // subsequent reconnects so the dashboard keeps working foreground-only;
-        // every other error simply triggers a reconnect.
+        // subsequent reconnects so the dashboard keeps working foreground-only.
+        //
+        // A stall raised by the watchdog above is NOT a foreground-service
+        // problem, so it must not cost us the service — otherwise recovering
+        // from a toggled location setting would quietly disable background
+        // tracking for the rest of the drive.
+        final stalled = e is StateError;
         // ignore: avoid_print
-        print('iRallyMeter: GPS stream error ($e) — reconnecting'
-            '${background ? ' (foreground-only fallback)' : ''}…');
-        background = false;
-        // Surface the gap to consumers so the status bar can react instead of
-        // holding a frozen last value.
+        print('iRallyMeter: GPS stream ${stalled ? 'stalled' : 'error'} ($e) — '
+            're-subscribing${!stalled && background ? ' (foreground-only fallback)' : ''}…');
+        if (!stalled) background = false;
         yield GpsSample.noFix();
       }
       await Future<void>.delayed(AppConstants.gpsReconnectBackoff);
