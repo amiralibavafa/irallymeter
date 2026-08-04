@@ -187,6 +187,36 @@ class AppConstants {
   /// and seven on a 5 Hz one.
   static const int estimationExitConsecutiveFixes = 3;
 
+  /// How long a run of merely USABLE fixes may last before Estimation Mode ends
+  /// anyway, even though none of them reached [estimationExitAccuracyMeters].
+  ///
+  /// Without this the engine latches. [usableAccuracyMeters] (25 m) is the bar
+  /// for integrating a fix, and §15.2's exit bar is 20 m, so fixes landing in
+  /// the 21-25 m band are good enough to MEASURE with but not good enough to
+  /// ESCAPE with — and nothing else ends the mode. Light tree cover and shallow
+  /// urban canyon sit in exactly that band, so the engine can dead-reckon from
+  /// v0 indefinitely while usable truth streams past it. Measured in
+  /// `tunnel_hardening_test` 31: a car halving its speed under a latch reported
+  /// **2400 m against 1200 m of ground truth**, and an over-read is permanent
+  /// because `_reconcileAgainst` pays out undershoot only.
+  ///
+  /// The window IS the cost, so it is deliberately short. While it runs the
+  /// engine is still coasting at v0, so the distance it can invent is bounded
+  /// by `(v0 - actualSpeed) x thisWindow` and by nothing else. At 30 s a car
+  /// halving its speed invented 300 m; at 10 s it invents 100 m.
+  ///
+  /// 10 s is still strong evidence, because the run requires every fix in it to
+  /// be MUTUALLY CONSISTENT with the last. A re-acquiring chip at a tunnel
+  /// mouth throws out positions that fail exactly that test and restart the
+  /// run. Re-entry is cheap too — §15.1 needs only 3 s of silence — so an early
+  /// exit self-corrects within one [tunnelConfirmDelay] rather than stranding
+  /// the engine.
+  ///
+  /// It does not weaken §15.2: three fixes at 20 m or better still exit
+  /// immediately, as they always did. This decides only what happens when those
+  /// never arrive, where the honest answer is that measuring beats guessing.
+  static const Duration estimationExitUsableWindow = Duration(seconds: 10);
+
   /// SPEC-v2 §15.2: recovery fixes must be "mutually consistent — each implies
   /// a plausible speed relative to the previous one". This is that plausibility
   /// bound (m/s); a pair implying more is re-acquisition noise, not driving.

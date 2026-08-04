@@ -119,6 +119,8 @@ class Rig {
 }
 
 void main() {
+  _latch();
+  _latchGaps();
   group('A · the tunnel actually works, in many shapes', () {
     test('01 · a short 30 s tunnel', () {
       final r = Rig()..approach();
@@ -401,6 +403,118 @@ void main() {
       expect(d.silentTicks, 0);
       expect(d.onSilentTick(servicesEnabled: true), isFalse,
           reason: 'a recovered stream starts its judgement afresh');
+    });
+  });
+}
+
+/// THE 20-25 m LATCH — found in the Phase 5 self-review.
+///
+/// `GpsDistanceSource.isHealthy` accepts a fix up to
+/// [AppConstants.usableAccuracyMeters] (25 m) and measures with it happily.
+/// §15.2 only ends Estimation Mode on fixes of
+/// [AppConstants.estimationExitAccuracyMeters] (20 m) or better, and nothing
+/// else ends it at all.
+///
+/// So a band exists — 21 m to 25 m — where every arriving fix is good enough to
+/// integrate but not good enough to escape with. The engine sits in Estimation
+/// Mode dead-reckoning from v0 while perfectly usable fixes stream past it.
+/// Light tree cover and shallow urban canyon land in exactly that band.
+///
+/// The damage is NOT that the estimate is noisy. It is that the estimate cannot
+/// see speed it is never told about: hold v0 while the car actually slows, and
+/// the app invents distance that no later correction removes, because
+/// `_reconcileAgainst` pays out undershoot only.
+void _latch() {
+  /// Drives [seconds] at [speed] with fixes at [accuracy], motion at 4 Hz so
+  /// the sensor source is never starved by [AppConstants.motionMaxGap] (750 ms).
+  void drive(Rig r, {required int fromS, required int seconds,
+      required double speed, required double accuracy, required double startM}) {
+    var north = startM;
+    for (var s = fromS; s < fromS + seconds; s++) {
+      for (var k = 0; k < 4; k++) {
+        r.motion(s * 1000 + k * 250);
+      }
+      north += speed;
+      r.gps(ms: s * 1000, northM: north, speed: speed, accuracy: accuracy);
+      r.tick(s * 1000);
+    }
+  }
+
+  group('the 20-25 m band must not latch Estimation Mode on forever', () {
+    test('30 · steady 22 m fixes eventually end Estimation Mode', () {
+      final r = Rig();
+      r.approach(seconds: 20, speed: 20);
+      r.blackout(fromS: 21, toS: 40);
+      expect(r.state.tunnelMode, isTrue, reason: 'should be estimating by now');
+
+      // Two minutes of fixes that ARE integrable (<= 25 m) but never reach the
+      // 20 m exit bar. The car is plainly visible to the receiver throughout.
+      drive(r, fromS: 41, seconds: 120, speed: 20, accuracy: 22, startM: 800);
+
+      expect(r.state.tunnelMode, isFalse,
+          reason: 'after 120 s of usable 22 m fixes the engine is STILL '
+              'coasting on dead reckoning and ignoring every one of them');
+    });
+
+    test('31 · and while latched it invents distance the car did not cover',
+        () {
+      final r = Rig();
+      r.approach(seconds: 20, speed: 20); // 400 m of real GPS at 20 m/s
+      r.blackout(fromS: 21, toS: 40);     // ~20 s coasting at v0 = 20 m/s
+
+      // The car now HALVES its speed and drives for two minutes with usable
+      // 22 m fixes. Ground truth for this stretch is 10 m/s x 120 s = 1200 m.
+      // Latched, the engine holds v0 = 20 m/s and reports about 2400 m.
+      final beforeM = r.total;
+      drive(r, fromS: 41, seconds: 120, speed: 10, accuracy: 22, startM: 800);
+      final segment = r.total - beforeM;
+
+      // The residual over-read is BOUNDED and understood, not incidental: the
+      // engine coasts at v0 for at most
+      // [AppConstants.estimationExitUsableWindow] before the fallback fires, so
+      // the most it can invent here is (20 - 10) m/s x 10 s = 100 m. Anything
+      // beyond that means the latch is back.
+      const invented = 10.0 * 10.0;
+      expect(segment, lessThanOrEqualTo(1200.0 + invented + 1.0),
+          reason: 'reported ${segment.toStringAsFixed(0)} m for a stretch the '
+              'car covered 1200 m of, which is more than the '
+              '${invented.toStringAsFixed(0)} m the exit window can account '
+              'for. An over-read is PERMANENT — _reconcileAgainst pays out '
+              'undershoot only.');
+      expect(segment, greaterThanOrEqualTo(1200.0),
+          reason: 'under-reading here would mean the fallback fired early and '
+              'the engine missed distance instead of inventing it');
+    });
+  });
+}
+
+/// The usable-run fallback must not be fooled by a signal that is still
+/// dropping out. Added with the fix for the 20-25 m latch.
+void _latchGaps() {
+  group('the usable-fallback needs a CONTINUOUS run, not two lone fixes', () {
+    test('32 · usable fixes further apart than the entry delay do not exit',
+        () {
+      final r = Rig();
+      r.approach(seconds: 20, speed: 20);
+      r.blackout(fromS: 21, toS: 40);
+      expect(r.state.tunnelMode, isTrue);
+
+      // One usable fix every 8 s for two minutes. Each is consistent with the
+      // last, but an 8 s hole is longer than the 3 s §15.1 uses to DECLARE a
+      // tunnel, so this is a signal still dropping out — not a recovery.
+      var north = 800.0;
+      for (var s = 41; s <= 160; s += 8) {
+        for (var k = 0; k < 32; k++) {
+          r.motion(s * 1000 + k * 250);
+        }
+        north += 160;
+        r.gps(ms: s * 1000, northM: north, speed: 20, accuracy: 22);
+        r.tick(s * 1000);
+      }
+
+      expect(r.state.tunnelMode, isTrue,
+          reason: 'two lone fixes either side of an 8 s hole are not evidence '
+              'the signal came back');
     });
   });
 }

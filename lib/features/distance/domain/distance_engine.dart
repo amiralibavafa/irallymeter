@@ -100,6 +100,14 @@ class DistanceEngine {
   /// checked for mutual consistency against it.
   GpsSample? _recoveryLast;
 
+  /// When the current unbroken run of merely USABLE fixes began, and the last
+  /// fix in it. Every fix that reaches [_maybeExitTunnel] is already healthy, so
+  /// this run is what breaks the 21-25 m latch — see
+  /// [AppConstants.estimationExitUsableWindow].
+  DateTime? _usableSince;
+  GpsSample? _usableLast;
+  DateTime? _usableLastAt;
+
   // ===========================================================================
   // Inputs
   // ===========================================================================
@@ -110,9 +118,14 @@ class DistanceEngine {
 
     if (!healthy) {
       // An unhealthy fix is indistinguishable from no fix for our purposes:
-      // don't refresh the health clock, and drop the recovery streak.
+      // don't refresh the health clock, and drop both recovery runs. The
+      // usable run especially: it exists to prove the signal came BACK, and a
+      // fix we would refuse to integrate is not evidence of that.
       _recoveryStreak = 0;
       _recoveryLast = null;
+      _usableSince = null;
+      _usableLast = null;
+      _usableLastAt = null;
       _maybeEnterTunnel(now,
           degradedFixAccuracyM: s.hasFix ? s.accuracyM : null);
       return;
@@ -241,6 +254,9 @@ class DistanceEngine {
     _sensor.seed(_gpsSpeedMps, _pendingMotion?.timestamp ?? now);
     _recoveryStreak = 0;
     _recoveryLast = null;
+    _usableSince = null;
+    _usableLast = null;
+    _usableLastAt = null;
 
     _publish(_state.copyWith(
       source: DistanceSource.sensor,
@@ -267,25 +283,65 @@ class DistanceEngine {
   /// decrementing it, so a single bad fix mid-recovery restarts the count. That
   /// is the debouncing §15.2 asks for, and it is what stops the dashboard
   /// flickering between measured and estimated at the edge of coverage.
+  /// There is a SECOND exit, and without it the first one latches.
+  ///
+  /// Every fix reaching this method is already healthy — [onGpsSample] sent the
+  /// rest away — which means it is a fix the engine would integrate as ground
+  /// truth if it were not in Estimation Mode. But healthy means 25 m
+  /// ([AppConstants.usableAccuracyMeters]) and §15.2's exit bar is 20 m, so a
+  /// fix in the 21-25 m band can neither be measured with NOR escaped with, and
+  /// nothing else ends the mode. The engine dead-reckons from v0 while usable
+  /// truth streams past it, for as long as the band persists.
+  ///
+  /// So a sustained run of usable, mutually consistent fixes also ends the mode
+  /// (see [AppConstants.estimationExitUsableWindow]). §15.2 is untouched: three
+  /// fixes at 20 m or better still exit immediately. This decides only what
+  /// happens when those never come.
   void _maybeExitTunnel(GpsSample s, DateTime now) {
-    if (s.accuracyM > AppConstants.estimationExitAccuracyMeters) {
+    // Track the usable run first, so it survives fixes that fail the 20 m bar.
+    //
+    // The run restarts on either kind of break. Inconsistency is the obvious
+    // one. The other is a GAP: usable fixes arriving further apart than
+    // [AppConstants.tunnelConfirmDelay] are not a recovered signal, they are a
+    // signal still dropping out — that same gap is what §15.1 uses to declare a
+    // tunnel in the first place, so it cannot also count as evidence of leaving
+    // one. Without this, two lone fixes ten seconds apart would end the mode.
+    final prevUsable = _usableLast;
+    final prevUsableAt = _usableLastAt;
+    final broken = prevUsable != null &&
+        (!_mutuallyConsistent(prevUsable, s) ||
+            prevUsableAt == null ||
+            now.difference(prevUsableAt) > AppConstants.tunnelConfirmDelay);
+    if (broken) {
+      _usableSince = now; // the run restarts at this fix
+    } else {
+      _usableSince ??= now;
+    }
+    _usableLast = s;
+    _usableLastAt = now;
+
+    if (s.accuracyM <= AppConstants.estimationExitAccuracyMeters) {
+      final prev = _recoveryLast;
+      if (prev != null && !_mutuallyConsistent(prev, s)) {
+        // Restart the streak AT this fix: it may be the first honest one.
+        _recoveryStreak = 1;
+        _recoveryLast = s;
+      } else {
+        _recoveryStreak++;
+        _recoveryLast = s;
+        if (_recoveryStreak >= AppConstants.estimationExitConsecutiveFixes) {
+          _exitTunnel(s, now);
+          return;
+        }
+      }
+    } else {
       _recoveryStreak = 0;
       _recoveryLast = null;
-      return;
     }
 
-    final prev = _recoveryLast;
-    if (prev != null && !_mutuallyConsistent(prev, s)) {
-      // Restart the streak AT this fix: it may be the first honest one.
-      _recoveryStreak = 1;
-      _recoveryLast = s;
-      return;
-    }
-
-    _recoveryStreak++;
-    _recoveryLast = s;
-
-    if (_recoveryStreak >= AppConstants.estimationExitConsecutiveFixes) {
+    final since = _usableSince;
+    if (since != null &&
+        now.difference(since) >= AppConstants.estimationExitUsableWindow) {
       _exitTunnel(s, now);
     }
   }
@@ -322,6 +378,9 @@ class DistanceEngine {
 
     _sensor.reset();
     _tunnelEntryFix = null;
+    _usableSince = null;
+    _usableLast = null;
+    _usableLastAt = null;
     _gpsSpeedMps = exitFix.speedMps.isFinite && exitFix.speedMps >= 0
         ? exitFix.speedMps
         : 0;
@@ -491,6 +550,9 @@ class DistanceEngine {
     _lastHealthyAt = null;
     _recoveryStreak = 0;
     _recoveryLast = null;
+    _usableSince = null;
+    _usableLast = null;
+    _usableLastAt = null;
     _lastHealthySample = null;
     _tunnelEntryFix = null;
     _tunnelEntrySpeedMps = 0;
