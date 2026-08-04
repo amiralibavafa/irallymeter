@@ -63,7 +63,9 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
     }
     prev = s;
 
-    final speed = speedFilter.add(rawSpeed, s.accuracyM);
+    // Pass the fix's own timestamp: SPEC-v2 §19 budgets the display latency
+    // in SECONDS, so the filter has to know how much time a sample represents.
+    final speed = speedFilter.add(rawSpeed, s.accuracyM, s.timestamp);
 
     // Only trust GPS course when actually moving; otherwise hold last heading.
     if (s.headingDeg.isFinite && speed > AppConstants.speedNoiseFloorMps) {

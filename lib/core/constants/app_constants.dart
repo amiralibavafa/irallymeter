@@ -37,8 +37,21 @@ class AppConstants {
   /// the displacement entirely so a parked car cannot accumulate distance.
   static const double movingThresholdMps = 1.5;
 
-  /// EMA smoothing factor for speed (0..1). Higher = snappier, lower = smoother.
-  static const double speedSmoothing = 0.4;
+  /// Time constant for the display speed filter (SPEC-v2 §7.2, §19 row 3).
+  ///
+  /// The filter is TIME-based, not sample-based, so its lag is a property of
+  /// the clock rather than of whatever fix rate the chip delivers. This is the
+  /// number that sets it.
+  ///
+  /// §19 budgets "latency <= 1.0 s" for the displayed speed and §7.2 says
+  /// smoothing "must not add more than approximately 1 second of latency".
+  /// Settling within +/-2 km/h of a large step takes roughly `tau * ln(step /
+  /// tolerance)`, so 250 ms leaves the worst realistic step inside 1 s at both
+  /// 1 Hz and 5 Hz.
+  ///
+  /// The previous value was a per-sample weight of 0.4, which measured 1.60 s
+  /// at 5 Hz and 8.00 s at 1 Hz against that same 1 s budget.
+  static const Duration speedSmoothingTau = Duration(milliseconds: 250);
 
   /// If no fix arrives within this window we consider the latest fix stale.
   static const Duration gpsStaleTimeout = Duration(seconds: 3);
