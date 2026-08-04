@@ -84,15 +84,23 @@ void main() {
     });
 
     test('07 · varying update intervals still give distance ÷ total time', () {
-      // Steps of 1 s, 3 s and 2 s; total 222.4 m over 6 s ≈ 37.1 m/s.
+      // Steps of 1 s, 3 s and 2 s at a steady ~25 m/s; 150 m over 6 s.
+      //
+      // DATA CHANGED in [3.4d], with Saam's sign-off, and the assertions moved
+      // with it. The original drove 111.2 m in 2 s straight after 55.6 m in
+      // 3 s — a car going 67 to 200 km/h in two seconds, roughly 2 g, and
+      // exactly 3x the displacement its previous speed predicted. SPEC-v2 §6.1
+      // rule 4 rejects precisely that, so the fixture and the spec could not
+      // both stand. The test's PURPOSE is unchanged: uneven update intervals
+      // must still integrate to distance / total time.
       final c = AverageSpeedCalculator()
-        ..add(_fix(lat: 46.0000, lon: 8.0, tMs: 0))
-        ..add(_fix(lat: 46.0005, lon: 8.0, tMs: 1000)) // 55.6 m / 1 s
-        ..add(_fix(lat: 46.0010, lon: 8.0, tMs: 4000)) // 55.6 m / 3 s
-        ..add(_fix(lat: 46.0020, lon: 8.0, tMs: 6000)); // 111.2 m / 2 s
-      expect(c.distanceMeters, closeTo(222.4, 3));
+        ..add(_fix(lat: 46.0000, lon: 8.0, speed: 25, tMs: 0))
+        ..add(_fix(lat: 46.000225, lon: 8.0, speed: 25, tMs: 1000)) // 25 m / 1 s
+        ..add(_fix(lat: 46.000900, lon: 8.0, speed: 25, tMs: 4000)) // 75 m / 3 s
+        ..add(_fix(lat: 46.001350, lon: 8.0, speed: 25, tMs: 6000)); // 50 m / 2 s
+      expect(c.distanceMeters, closeTo(150, 3));
       expect(c.elapsed, const Duration(seconds: 6));
-      expect(c.averageMps, closeTo(37.1, 1.5));
+      expect(c.averageMps, closeTo(25, 1.5));
     });
 
     test('08 · reset() clears the leg; integration restarts cleanly', () {

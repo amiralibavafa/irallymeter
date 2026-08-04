@@ -129,4 +129,51 @@ void main() {
           reason: 'accumulated ${total.toStringAsFixed(3)} m while parked');
     });
   });
+
+  group('§6.1 rule 4 · the 3x jump rejection', () {
+    test('09 · a jump beyond 3x the expected displacement is rejected', () {
+      final src = GpsDistanceSource();
+      src.add(fix(atMs: 0, northM: 0, speed: 20, speedAcc: 0.5));
+      src.add(fix(atMs: 1000, northM: 20, speed: 20, speedAcc: 0.5));
+      // Doing 20 m/s, so ~20 m is expected over the next second. 100 m is not.
+      expect(
+        src.add(fix(atMs: 2000, northM: 120, speed: 20, speedAcc: 0.5)),
+        isNull,
+        reason: 'a fix inconsistent with the last known speed is a bad fix, '
+            'not real movement',
+      );
+      expect(AppConstants.maxJumpFactor, 3.0);
+    });
+
+    test('10 · a jump just inside 3x is accepted', () {
+      final src = GpsDistanceSource();
+      src.add(fix(atMs: 0, northM: 0, speed: 20, speedAcc: 0.5));
+      src.add(fix(atMs: 1000, northM: 20, speed: 20, speedAcc: 0.5));
+      final d = src.add(fix(atMs: 2000, northM: 79, speed: 20, speedAcc: 0.5));
+      expect(d, isNotNull, reason: '59 m against an expected 20 m is under 3x');
+    });
+
+    test('11 · pulling away from a standstill is NOT rejected', () {
+      // The gate that makes rule 4 safe. Three times an expected displacement
+      // of ~0 is still 0, so an ungated rule rejects every launch and the trip
+      // never starts.
+      final src = GpsDistanceSource();
+      src.add(fix(atMs: 0, northM: 0, speed: 0.2, speedAcc: 0.5));
+      src.add(fix(atMs: 1000, northM: 0.3, speed: 0.2, speedAcc: 0.5));
+      final d = src.add(fix(atMs: 2000, northM: 25, speed: 25, speedAcc: 0.5));
+      expect(d, isNotNull);
+      expect(d!.meters, greaterThan(0));
+    });
+
+    test('12 · a rejected fix is not the baseline for the one after it', () {
+      final src = GpsDistanceSource();
+      src.add(fix(atMs: 0, northM: 0, speed: 20, speedAcc: 0.5));
+      src.add(fix(atMs: 1000, northM: 20, speed: 20, speedAcc: 0.5));
+      src.add(fix(atMs: 2000, northM: 120, speed: 20, speedAcc: 0.5)); // rejected
+      // The next honest fix must be able to resume, not be judged against a
+      // speed derived from the rejection.
+      final d = src.add(fix(atMs: 3000, northM: 140, speed: 20, speedAcc: 0.5));
+      expect(d, isNotNull);
+    });
+  });
 }

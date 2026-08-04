@@ -28,6 +28,10 @@ class AppConstants {
   /// positions instead. See [GpsSample.hasValidDopplerSpeed].
   static const double maxUsableSpeedAccuracyMps = 2.0;
 
+  /// SPEC-v2 §6.1 rule 4: a displacement more than this many times the one the
+  /// last known speed predicted is a bad fix, not real movement.
+  static const double maxJumpFactor = 3.0;
+
   /// SPEC-v2 §7.1 / §6.1: the single "is the vehicle actually moving" line.
   /// Below this (m/s ≈ 5.4 km/h) the display shows 0 km/h, and §6.1 ignores
   /// the displacement entirely so a parked car cannot accumulate distance.

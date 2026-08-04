@@ -36,6 +36,12 @@ import 'distance_delta.dart';
 class GpsDistanceSource {
   GpsSample? _last;
 
+  /// Speed of the last accepted pair (m/s). Used only by §6.1 rule 4, to judge
+  /// what displacement the NEXT fix should plausibly show. Reset to 0 whenever
+  /// a fix is rejected or the anchor moves, so a rejected fix can never become
+  /// the baseline for judging the one after it.
+  double _lastSpeedMps = 0;
+
   /// The fix the next increment will be measured from (null before the first
   /// usable fix). Exposed so the engine can tell where the car was last
   /// genuinely seen — the anchor a tunnel is measured from.
@@ -58,6 +64,7 @@ class GpsDistanceSource {
     final prev = _last;
     if (prev == null) {
       _last = s;
+      _lastSpeedMps = 0;
       return null; // First usable fix only anchors.
     }
 
@@ -66,6 +73,7 @@ class GpsDistanceSource {
     if (dtMs <= 0 ||
         dtMs > AppConstants.gpsStaleTimeout.inMilliseconds * 3) {
       _last = s;
+      _lastSpeedMps = 0;
       return null;
     }
 
@@ -80,32 +88,36 @@ class GpsDistanceSource {
     // (> ~324 km/h implies a bad fix, not real movement) — exclude entirely.
     if (!meters.isFinite) {
       _last = s;
+      _lastSpeedMps = 0;
       return null;
     }
     final dtSec = dtMs / 1000.0;
     final impliedSpeed = meters / dtSec;
     if (impliedSpeed > 90.0) {
       _last = s;
+      _lastSpeedMps = 0;
       return null;
     }
 
-    // SPEC-v2 §6.1 rule 4 ("reject a fix implying a speed inconsistent with the
-    // previous reading — for example a jump of more than three times the
-    // expected displacement") is DELIBERATELY NOT IMPLEMENTED HERE. It is
-    // deferred to step 3.4, for two reasons:
+    // SPEC-v2 §6.1 rule 4: "Reject a fix that implies a speed inconsistent with
+    // the previous reading — for example a jump of more than three times the
+    // expected displacement."
     //
-    //  1. §15.1 lists the identical condition as a tunnel-ENTRY trigger, so
-    //     implementing it twice, in two places, with two thresholds is how the
-    //     two copies drift apart. It belongs wherever §15's thresholds live.
-    //  2. Implemented strictly it rejects real data in `average_speed_test.dart`
-    //     test 07, whose third step covers 111.2 m in 2 s straight after
-    //     55.6 m in 3 s — exactly 3x the expected displacement, and a vehicle
-    //     accelerating 67 -> 200 km/h in two seconds at roughly 2 g. Every
-    //     physically-grounded form of the rule rejects it. Whether that test's
-    //     data or the rule should give is a question for the repo's owners, not
-    //     something to settle by quietly relaxing one of them.
+    // Gated on the vehicle ALREADY MOVING, and that gate is not optional. With
+    // a stationary previous fix the expected displacement is ~0, and three
+    // times nothing is still nothing, so an ungated rule would reject every
+    // pull-away from a standstill and the trip would never start at all.
     //
-    // The absolute 90 m/s teleport guard above still stands in the meantime.
+    // This complements rather than replaces the absolute 90 m/s guard above:
+    // that one catches teleports in absolute terms, this one catches jumps that
+    // are physically possible for SOME vehicle but not for the one we were just
+    // watching.
+    if (_lastSpeedMps >= AppConstants.movingThresholdMps &&
+        meters > AppConstants.maxJumpFactor * _lastSpeedMps * dtSec) {
+      _last = s;
+      _lastSpeedMps = 0; // a rejection can never be the baseline for the next
+      return null;
+    }
 
     _last = s;
 
@@ -121,6 +133,7 @@ class GpsDistanceSource {
     // zero, the positions get to speak.
     final dopplerUsable = s.hasValidDopplerSpeed && s.speedMps > 0;
     final validSpeed = dopplerUsable ? s.speedMps : impliedSpeed;
+    _lastSpeedMps = validSpeed;
 
     // SPEC-v2 §6.1, rules 2 and 3 — what separates movement from noise.
     //
@@ -162,8 +175,17 @@ class GpsDistanceSource {
   /// exactly where this bites: the fix pair straddling a 5 s blackout is inside
   /// the [AppConstants.gpsStaleTimeout] window, so it would otherwise look like
   /// a perfectly ordinary — and very fast — increment.
-  void reanchor(GpsSample s) => _last = s;
+  void reanchor(GpsSample s) {
+    _last = s;
+    // The blackout invalidates the speed baseline too: judging the first fix
+    // after a tunnel against the speed from before it would reject a perfectly
+    // good recovery fix.
+    _lastSpeedMps = 0;
+  }
 
   /// Forget the anchor (start a fresh leg).
-  void reset() => _last = null;
+  void reset() {
+    _last = null;
+    _lastSpeedMps = 0;
+  }
 }
