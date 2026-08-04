@@ -39,7 +39,9 @@ dependencies:
   wakelock_plus: ^1.2.8
 
   # Formatting + file sharing
-  intl: ^0.19.0
+  # NOTE: `intl` was removed in [SA-V2] — it was declared here and imported
+  # nowhere in lib/, test/ or tool/. Add it back when localisation lands
+  # (docs/IRAN-CONSTRAINTS.md §6), not before.
   share_plus: ^10.1.3
   file_picker: ^8.1.6
 

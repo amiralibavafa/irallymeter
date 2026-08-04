@@ -28,15 +28,39 @@ Future<void> main() async {
   // Initialise persistence before the app reads any settings/trip values.
   final storage = await StorageService.init();
 
-  // Request location up front so the GPS stream can start immediately. We
-  // ignore the result here; the status bar surfaces "GPS LOST" if denied.
-  await GeolocatorGpsService().ensurePermission();
+  // Request location and notifications up front so the GPS stream can start
+  // immediately. Both are BEST EFFORT and neither may ever gate the first frame.
+  //
+  // These used to be bare awaits. On the first-ever run of this app they threw
+  //   PlatformException(PermissionHandler.PermissionManager,
+  //                     'A request for permissions is already running')
+  // — two permission requests overlapping — and because they sit BEFORE
+  // runApp, the exception meant runApp was never reached and the app hung on
+  // the Flutter splash screen forever. There was no timeout and no error path:
+  // a brand-new user's app simply never started.
+  //
+  // It did not reproduce on a later clean reinstall, so the race is
+  // intermittent. The structural hazard is not: any throw here is fatal to
+  // launch. Catching makes the app boot regardless, and the UI degrades
+  // honestly on its own — the status bar already surfaces GPS LOST.
+  try {
+    await GeolocatorGpsService().ensurePermission();
+  } catch (e) {
+    // ignore: avoid_print
+    print('iRallyMeter: location permission request failed ($e) — continuing');
+  }
 
-  // Android 13+ needs POST_NOTIFICATIONS for the GPS foreground-service
-  // notification. If it's denied the foreground service can fail to start,
-  // which previously froze speed + trip distance. Best-effort request.
-  if (await Permission.notification.isDenied) {
-    await Permission.notification.request();
+  try {
+    // Android 13+ needs POST_NOTIFICATIONS for the GPS foreground-service
+    // notification. If it's denied the foreground service can fail to start,
+    // which previously froze speed + trip distance.
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
+  } catch (e) {
+    // ignore: avoid_print
+    print('iRallyMeter: notification permission request failed ($e) — '
+        'continuing');
   }
 
   runApp(

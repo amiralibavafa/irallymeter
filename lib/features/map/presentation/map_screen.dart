@@ -71,7 +71,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.irallymeter.app',
+                // The OSMF tile usage policy requires "a clear, unique User-Agent
+                // string that names your app". This said
+                // 'com.irallymeter.app', which is not this app's ID and
+                // therefore names an application that does not exist.
+                userAgentPackageName: 'com.irallyclub.irallymeter',
                 // tileProvider: FileTileProvider(), // ← enable for offline packs
               ),
               if (track.length > 1)
