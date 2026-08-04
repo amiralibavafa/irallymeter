@@ -163,4 +163,59 @@ void main() {
               'ground truth of 3000.0 m (500 clean + 2000 dark + 500 clean)');
     });
   });
+
+  // ===========================================================================
+  // §12.2 inside a full replay — the case tunnel_2km structurally cannot cover
+  // ===========================================================================
+  //
+  // tunnel_2km feeds `ax: 0.0` throughout, so the forward-axis estimator never
+  // gains confidence and the sensor source correctly coasts at v₀. Everything
+  // T3 proves is about §12.1. Until this fixture existed, §12.2's accelerometer
+  // refinement had NEVER RUN in a full replay — only in isolated unit tests.
+  //
+  // tunnel_varying drives a car that genuinely slows down and speeds back up in
+  // the dark, after an approach that varies enough to teach the axis estimator
+  // which way is forward.
+  group('§12.2 · the refinement, in a full replay', () {
+    test('T8 · a varying-speed 80 s blackout stays inside §19\'s 3 %', () {
+      final r = replay('tunnel_varying.jsonl');
+      expect(r.enteredEstimationCount, 1,
+          reason: 'the 80 s blackout must be detected exactly once');
+      final estimated = r.metersBySource[DistanceSource.sensor] ?? 0;
+      expect((estimated - 1700.0).abs() / 1700.0, lessThanOrEqualTo(0.03),
+          reason: 'estimated ${estimated.toStringAsFixed(1)} m against a '
+              'ground truth of 1700.0 m');
+    });
+
+    test('T8b · the refinement measurably beats coasting at v₀', () {
+      // This is the test that gives §12.2 its reason to exist. The car enters
+      // at 25 m/s and averages 21.25 m/s in the dark, so holding v₀ for the
+      // whole 80 s would measure 2000 m against 1700 m of real travel — 17.6 %,
+      // nearly six times §19's budget. If this ever stops passing, the
+      // accelerometer path has silently stopped contributing and T8 alone would
+      // not tell us.
+      final r = replay('tunnel_varying.jsonl');
+      final estimated = r.metersBySource[DistanceSource.sensor] ?? 0;
+      const coasting = 2000.0;
+      expect((estimated - 1700.0).abs(), lessThan((coasting - 1700.0).abs()),
+          reason: 'estimated ${estimated.toStringAsFixed(1)} m is no better '
+              'than coasting would have been (${coasting.toStringAsFixed(1)} m) '
+              '— the refinement is not running');
+    });
+
+    test('T8c · a decelerating blackout still never runs the counters back',
+        () {
+      // The asymmetry that makes this worth its own test: the estimate ends up
+      // ABOVE the truth here, and §16 corrects undershoot only.
+      final r = replay('tunnel_varying.jsonl');
+      expect(r.wentBackwards, isFalse);
+    });
+
+    test('T8d · the full varying trace totals the real ground distance', () {
+      final r = replay('tunnel_varying.jsonl');
+      expect(r.errorFraction(3050.0), lessThanOrEqualTo(0.03),
+          reason: 'measured ${r.totalMeters.toStringAsFixed(1)} m against a '
+              'ground truth of 3050.0 m (600 clean + 1700 dark + 750 clean)');
+    });
+  });
 }
