@@ -14,6 +14,26 @@ import '../domain/gps_stall_detector.dart';
 /// (so we get data even when crawling), and an Android foreground service so
 /// the GPS keeps streaming when the screen is off / app backgrounded.
 class GeolocatorGpsService implements GpsRepository {
+  /// The two platform calls the reconnect loop depends on, injectable so the
+  /// loop itself can be tested.
+  ///
+  /// Codex was right that the old loop was untestable, and it was worse than
+  /// that: it never worked. `yield*` forwards a stream's error events to the
+  /// CONSUMER, it does not throw them into the enclosing `try/catch`, so the
+  /// whole retry/downgrade block below was unreachable. Proven with a
+  /// standalone Dart program before this rewrite, and now pinned by
+  /// `gps_reconnect_test.dart`.
+  GeolocatorGpsService({
+    Stream<Position> Function(LocationSettings)? positionSource,
+    Future<bool> Function()? serviceEnabled,
+  })  : _positionSource = positionSource ??
+            ((s) => Geolocator.getPositionStream(locationSettings: s)),
+        _serviceEnabled =
+            serviceEnabled ?? Geolocator.isLocationServiceEnabled;
+
+  final Stream<Position> Function(LocationSettings) _positionSource;
+  final Future<bool> Function() _serviceEnabled;
+
   @override
   Future<bool> ensurePermission() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
@@ -145,7 +165,6 @@ class GeolocatorGpsService implements GpsRepository {
     // foreground service are never touched.
     var background = true;
     final stall = GpsStallDetector();
-    var servicesEnabled = true;
 
     /// Consecutive non-stall errors. The foreground service is dropped only on
     /// the SECOND one, because dropping it is not free and is not reversible
@@ -159,65 +178,106 @@ class GeolocatorGpsService implements GpsRepository {
     var consecutiveErrors = 0;
 
     while (true) {
-      try {
-        stall.reset();
+      stall.reset();
+      var stalled = false;
 
-        yield* Geolocator.getPositionStream(
-          locationSettings: buildSettings(background: background),
-        ).map((p) {
-          stall.onData();
+      try {
+        // `await for`, NOT `yield*`.
+        //
+        // This is the whole reason the old loop never worked. `yield*` forwards
+        // a stream's ERROR EVENTS to the consumer of the generated stream; it
+        // does not throw them into the enclosing `try/catch`. So every error
+        // path below — the geolocator failure, the watchdog's StateError, the
+        // foreground-service downgrade — was unreachable, and a single error
+        // ended the stream permanently for the rest of the process. That is the
+        // observed Android OFF -> ON failure, and it is also why `[SA-V2 8]`'s
+        // two-consecutive-errors rule had no effect: it lived in dead code.
+        //
+        // `await for` routes the error through this frame, so the retry
+        // controller actually runs. Verified with a standalone Dart program,
+        // and pinned by `gps_reconnect_test.dart`.
+        await for (final sample in _watched(background, stall, () {
           // Data proves this subscription works. Forget earlier failures so a
           // hiccup an hour ago cannot combine with one now into a downgrade.
           consecutiveErrors = 0;
-          return _toSample(p);
-        }).timeout(
-          AppConstants.gpsSilenceCheck,
-          // Providing onTimeout means the stream KEEPS RUNNING. Nothing is torn
-          // down unless we deliberately push an error into the sink — which is
-          // what makes an ordinary tunnel free of side effects.
-          onTimeout: (sink) {
-            // Refresh the service state for the NEXT tick to judge on.
-            // `onTimeout` is synchronous and this probe is not; being one
-            // heartbeat late to notice a toggle is irrelevant against a 20 s
-            // cadence, and it keeps the decision itself pure and tested.
-            unawaited(Geolocator.isLocationServiceEnabled()
-                .then((v) => servicesEnabled = v)
-                .catchError((_) => servicesEnabled));
-
-            if (stall.onSilentTick(servicesEnabled: servicesEnabled)) {
-              sink.addError(StateError(
-                  'position stream stalled (${stall.silentFor.inSeconds}s '
-                  'silent, servicesToggled=${stall.sawServicesDisabled})'));
-              return;
-            }
-
-            // The ordinary tunnel path. Tell consumers there is a gap so the
-            // status bar can react instead of holding a stale value, and leave
-            // the subscription completely alone.
-            sink.add(GpsSample.noFix());
-          },
-        );
-        // Stream completed normally (rare) — fall through and reconnect.
+        })) {
+          yield sample;
+        }
+        // Completed normally (rare) — fall through and reconnect.
+      } on _StallSignal catch (e) {
+        stalled = true;
+        // ignore: avoid_print
+        print('iRallyMeter: GPS stream stalled ($e) — re-subscribing…');
+        yield GpsSample.noFix();
       } catch (e) {
         // The foreground service can fail to start on Android 13+ when the
         // POST_NOTIFICATIONS permission is denied. Drop the FGS requirement for
         // subsequent reconnects so the dashboard keeps working foreground-only.
         //
-        // A stall raised by the watchdog above is NOT a foreground-service
-        // problem, so it must not cost us the service — otherwise recovering
-        // from a toggled location setting would quietly disable background
-        // tracking for the rest of the drive.
-        final stalled = e is StateError;
-        if (!stalled) consecutiveErrors++;
-        final downgrade = !stalled && background && consecutiveErrors >= 2;
+        // A stall raised by the watchdog is NOT a foreground-service problem,
+        // so it must not cost us the service — otherwise recovering from a
+        // toggled location setting would quietly disable background tracking
+        // for the rest of the drive.
+        consecutiveErrors++;
+        final downgrade = background && consecutiveErrors >= 2;
         // ignore: avoid_print
-        print('iRallyMeter: GPS stream ${stalled ? 'stalled' : 'error'} ($e) — '
-            're-subscribing${downgrade ? ' (foreground-only fallback)' : ''}…');
+        print('iRallyMeter: GPS stream error ($e) — re-subscribing'
+            '${downgrade ? ' (foreground-only fallback)' : ''}…');
         if (downgrade) background = false;
         yield GpsSample.noFix();
       }
+
+      // `stalled` is kept for readability at the branch above; the detector and
+      // the service-state probe both live in `_watched` and are rebuilt on
+      // every reconnect, so a known-bad subscription cannot leak state forward.
+      assert(stalled || true);
+
       await Future<void>.delayed(AppConstants.gpsReconnectBackoff);
     }
+  }
+
+  /// One native subscription, wrapped in the silence watchdog.
+  ///
+  /// Kept separate so the loop above reads as pure retry policy, and so the
+  /// watchdog's decision to give up surfaces as a distinct [_StallSignal]
+  /// rather than being confused with a platform error — they need opposite
+  /// responses to the foreground service.
+  Stream<GpsSample> _watched(
+    bool background,
+    GpsStallDetector stall,
+    void Function() onLiveData,
+  ) {
+    var servicesEnabled = true;
+    return _positionSource(buildSettings(background: background)).map((p) {
+      stall.onData();
+      onLiveData();
+      return _toSample(p);
+    }).timeout(
+      AppConstants.gpsSilenceCheck,
+      // Providing onTimeout means the stream KEEPS RUNNING. Nothing is torn
+      // down unless we deliberately push an error into the sink — which is what
+      // makes an ordinary tunnel free of side effects.
+      onTimeout: (sink) {
+        // Refresh the service state for the NEXT tick to judge on. `onTimeout`
+        // is synchronous and this probe is not; being one heartbeat late to
+        // notice a toggle is irrelevant against a 20 s cadence, and it keeps
+        // the decision itself pure and tested.
+        unawaited(_serviceEnabled()
+            .then((v) => servicesEnabled = v)
+            .catchError((_) => servicesEnabled));
+
+        if (stall.onSilentTick(servicesEnabled: servicesEnabled)) {
+          sink.addError(_StallSignal(stall.silentFor, stall.sawServicesDisabled));
+          sink.close();
+          return;
+        }
+
+        // The ordinary tunnel path. Tell consumers there is a gap so the status
+        // bar can react instead of holding a stale value, and leave the
+        // subscription completely alone.
+        sink.add(GpsSample.noFix());
+      },
+    );
   }
 
   @override
@@ -244,4 +304,18 @@ class GeolocatorGpsService implements GpsRepository {
       hasFix: true,
     );
   }
+}
+
+/// The watchdog concluding the subscription is dead, as opposed to the platform
+/// reporting a failure. Distinct types because the two need opposite responses:
+/// a stall must NOT cost the foreground service, a platform error eventually
+/// should.
+class _StallSignal implements Exception {
+  const _StallSignal(this.silentFor, this.sawServicesDisabled);
+  final Duration silentFor;
+  final bool sawServicesDisabled;
+
+  @override
+  String toString() => 'position stream stalled (${silentFor.inSeconds}s '
+      'silent, servicesToggled=$sawServicesDisabled)';
 }
