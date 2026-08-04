@@ -25,7 +25,14 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // geolocator + foreground-service location require a modern min SDK.
-        minSdkVersion = flutter.minSdkVersion
+        //
+        // Pinned to 23 ON PURPOSE. Do not replace this with
+        // `flutter.minSdkVersion`: that resolves to 24 in Flutter 3.44, which
+        // silently drops Android 6.0 (Marshmallow) devices. This app ships to
+        // Iran, where older handsets are common, so the floor is a product
+        // decision rather than a toolchain default. Flutter's Android migrator
+        // rewrites this line on build if given the chance.
+        minSdk = 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
