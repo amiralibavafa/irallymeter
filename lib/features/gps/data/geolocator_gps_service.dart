@@ -147,6 +147,17 @@ class GeolocatorGpsService implements GpsRepository {
     final stall = GpsStallDetector();
     var servicesEnabled = true;
 
+    /// Consecutive non-stall errors. The foreground service is dropped only on
+    /// the SECOND one, because dropping it is not free and is not reversible
+    /// within a drive: it is what keeps the receiver alive with the screen off,
+    /// which is the whole point of a trip computer on a windscreen mount.
+    ///
+    /// A device that genuinely cannot start the service — POST_NOTIFICATIONS
+    /// denied, the case this fallback exists for — fails every single time, so
+    /// it still downgrades, one 1.5 s reconnect later. A one-off platform
+    /// hiccup no longer costs the rest of the drive.
+    var consecutiveErrors = 0;
+
     while (true) {
       try {
         stall.reset();
@@ -155,6 +166,9 @@ class GeolocatorGpsService implements GpsRepository {
           locationSettings: buildSettings(background: background),
         ).map((p) {
           stall.onData();
+          // Data proves this subscription works. Forget earlier failures so a
+          // hiccup an hour ago cannot combine with one now into a downgrade.
+          consecutiveErrors = 0;
           return _toSample(p);
         }).timeout(
           AppConstants.gpsSilenceCheck,
@@ -194,10 +208,12 @@ class GeolocatorGpsService implements GpsRepository {
         // from a toggled location setting would quietly disable background
         // tracking for the rest of the drive.
         final stalled = e is StateError;
+        if (!stalled) consecutiveErrors++;
+        final downgrade = !stalled && background && consecutiveErrors >= 2;
         // ignore: avoid_print
         print('iRallyMeter: GPS stream ${stalled ? 'stalled' : 'error'} ($e) — '
-            're-subscribing${!stalled && background ? ' (foreground-only fallback)' : ''}…');
-        if (!stalled) background = false;
+            're-subscribing${downgrade ? ' (foreground-only fallback)' : ''}…');
+        if (downgrade) background = false;
         yield GpsSample.noFix();
       }
       await Future<void>.delayed(AppConstants.gpsReconnectBackoff);
