@@ -4,10 +4,12 @@ Phase 3 checked against **SPEC-v2 itself**, section by section, rather than
 against `GAP.md` or my own commit notes. Written after the implementation work,
 specifically to find what those two missed.
 
-**It found two real misses.** One is fixed (`[3.7]`); one needs a decision.
+**It found two real misses, and both are now closed** — §19 row 3 in `[3.7]`,
+§8's missing label in `[3.8]`. Auditing against the spec rather than against
+`GAP.md` also produced `[3.9]` and `[3.10]`.
 
-State at time of writing: branch `SA-V1` at `9e79972`, **200 pass / 2 skip /
-0 fail**, `flutter analyze` 2 pre-existing issues.
+State: branch `SA-V1` at `b6b227d`, **204 pass / 2 skip / 0 fail**,
+`flutter analyze` 2 pre-existing issues.
 
 ---
 
@@ -44,7 +46,7 @@ Fixed in `[3.7]`: `α = 1 − e^(−Δt/τ)`, `τ = 250 ms`, timestamp threaded 
 from `gps_providers`. Five new tests (`T7`–`T7e`), including one asserting that a
 5× change in fix rate no longer changes the settling time.
 
-### ⏸ NOT DONE — §8 asks for two averages and a label; there is one average and no label
+### ✅ FIXED — §8 asks for two averages and a label; there was one average and no label
 
 > "The application should track both moving average (excluding stops) and overall
 > average (including stops), and **make clear which one is displayed**."
@@ -55,11 +57,13 @@ which its own doc comment describes correctly. There is no moving average, and
 the dashboard tile is labelled simply `AVG SPEED`, which does not say which of
 the two it is.
 
-**Not fixed, deliberately.** Adding the second accumulator is ten lines of pure
-Dart, but *which one the dashboard shows by default, and how it is labelled in a
-tile that is already tight*, is a design decision on a driving instrument. That
-belongs to Amirali, not to me, and it is the sort of thing this audit is supposed
-to surface rather than quietly invent. See the question at the end.
+**The label is fixed in `[3.8]` — the tile now reads `AVG (ALL)`.** The second
+accumulator is not, by Saam's choice: it is ten lines of pure Dart, but a second
+tile costs space on a top bar that already overflows in portrait. On a
+pace-keeping instrument the difference between the two averages is the difference
+between being on time and being early, so a co-driver who cannot tell which one
+they are reading has a number they cannot use — the label was the half that
+mattered. The moving average stays a recorded gap rather than a silent one.
 
 ---
 
