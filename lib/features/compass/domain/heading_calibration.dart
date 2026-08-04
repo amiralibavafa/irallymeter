@@ -1,0 +1,160 @@
+import 'dart:math' as math;
+
+import '../../../core/constants/app_constants.dart';
+import '../../../core/utils/geo_math.dart';
+
+/// Learns the offset between the phone's magnetic heading and true north, from
+/// the app's own GPS.
+///
+/// ## Why this exists rather than a magnetic model
+///
+/// The cluster has a "Use true north" switch, and until now it changed only a
+/// LABEL: `headingSourceProvider` returned the string `'TRUE'` while the value
+/// on screen was still a raw magnetic reading. Declination in Iran is roughly
+/// +4.5° to +6° east, so the compass was several degrees wrong and saying
+/// otherwise. A display that asserts something false is worse than one that
+/// admits it does not know.
+///
+/// The obvious fix is a world magnetic model, but there is a better source
+/// already in the app: **GPS course over ground is true-north referenced.**
+/// Whenever the vehicle is moving with a good fix, the difference between GPS
+/// course and the magnetometer's heading IS the correction, and it costs no
+/// model, no coefficient table and no network.
+///
+/// It also corrects something a magnetic model cannot: **hard-iron distortion
+/// from this particular car.** A phone in a mount surrounded by steel, speaker
+/// magnets and a charging cable reads a bias that is a property of the
+/// installation, not of the location. Learning the offset in situ absorbs both
+/// the declination and that bias in one number.
+///
+/// ## What it deliberately does not do
+///
+/// It learns only while the vehicle is clearly moving on a good fix, because a
+/// GPS course derived from a crawling or stationary vehicle is noise. Until it
+/// has enough agreeing samples it reports [isLearned] false, and the caller
+/// must keep saying MAG rather than pretending.
+///
+/// Pure Dart, no clock of its own — every input is passed in.
+class HeadingCalibration {
+  double _offsetDeg = 0;
+  int _samples = 0;
+
+  /// Degrees to ADD to a magnetic heading to get true north. Meaningless until
+  /// [isLearned].
+  double get offsetDeg => _offsetDeg;
+
+  int get samples => _samples;
+
+  /// Whether enough consistent observations have accumulated to trust
+  /// [offsetDeg] — and therefore whether the cluster may say TRUE.
+  bool get isLearned => _samples >= AppConstants.headingCalibrationSamples;
+
+  /// Fold in one observation.
+  ///
+  /// [gpsCourseDeg] must be a course over ground from a moving vehicle;
+  /// [magneticDeg] the magnetometer heading at the same moment. Returns true if
+  /// the pair was used.
+  bool observe({
+    required double gpsCourseDeg,
+    required double magneticDeg,
+    required double speedMps,
+    required double accuracyM,
+  }) {
+    if (!gpsCourseDeg.isFinite || !magneticDeg.isFinite) return false;
+
+    // A course from a vehicle that is barely moving is direction-of-noise, not
+    // direction-of-travel. This threshold is deliberately far above §6.1's
+    // moving gate: heading needs more evidence than distance does.
+    if (!(speedMps >= AppConstants.headingCalibrationMinSpeedMps)) return false;
+    if (!(accuracyM > 0 && accuracyM <= AppConstants.goodAccuracyMeters)) {
+      return false;
+    }
+
+    final delta = GeoMath.angleDelta(magneticDeg, gpsCourseDeg);
+    if (!delta.isFinite) return false;
+
+    if (_samples == 0) {
+      _offsetDeg = delta;
+    } else {
+      // Circular EMA: average the DIFFERENCE from the running offset, never the
+      // raw angles, so a pair straddling 0°/360° cannot drag the mean halfway
+      // around the dial.
+      final err = GeoMath.angleDelta(_offsetDeg, delta);
+      _offsetDeg += AppConstants.headingCalibrationSmoothing * err;
+    }
+    _offsetDeg = _wrapSigned(_offsetDeg);
+    _samples++;
+    return true;
+  }
+
+  /// Apply the learned correction. Returns the input unchanged when nothing has
+  /// been learned — never a guess dressed up as a measurement.
+  double toTrue(double magneticDeg) {
+    if (!isLearned || !magneticDeg.isFinite) return magneticDeg;
+    return (magneticDeg + _offsetDeg + 360.0) % 360.0;
+  }
+
+  void reset() {
+    _offsetDeg = 0;
+    _samples = 0;
+  }
+
+  /// Wrap to (-180, 180]. Declination is a small angle; a value near ±180 means
+  /// the phone is reading backwards, which we still represent honestly.
+  static double _wrapSigned(double deg) {
+    var d = (deg + 180.0) % 360.0;
+    if (d < 0) d += 360.0;
+    return d - 180.0;
+  }
+}
+
+/// Time-based angular smoother (the compass equivalent of the fix `[3.7]` made
+/// to the speed display).
+///
+/// The compass used a fixed per-sample weight of 0.2, applied on every
+/// magnetometer event. That makes the needle's lag a property of whatever rate
+/// the device's magnetometer happens to run at: `τ = Δt / -ln(1 - 0.2)`, which
+/// is about **4.5 sample intervals**. At `sensors_plus`'s default 200 ms that is
+/// τ ≈ 0.9 s and roughly 2.7 s to settle — and a different number on every
+/// handset. That is the reported "laggy, has a delay".
+///
+/// Deriving the weight from elapsed time instead makes the lag a property of
+/// the clock, so the needle behaves the same on every phone.
+class AngleSmoother {
+  AngleSmoother(this.tau);
+
+  /// Time constant. Larger = steadier and slower.
+  final Duration tau;
+
+  double _value = double.nan;
+  DateTime? _lastAt;
+
+  double get value => _value;
+  bool get isSeeded => !_value.isNaN;
+
+  double add(double deg, DateTime at) {
+    if (!deg.isFinite) return _value;
+
+    final last = _lastAt;
+    _lastAt = at;
+
+    if (_value.isNaN || last == null) {
+      _value = (deg + 360.0) % 360.0;
+      return _value;
+    }
+
+    final dt = at.difference(last);
+    // Out-of-order or duplicate timestamps: hold rather than jump.
+    if (dt <= Duration.zero) return _value;
+
+    // A long gap means the old reading carries no information — snap.
+    final a = 1 - math.exp(-dt.inMicroseconds / tau.inMicroseconds);
+    _value = GeoMath.smoothAngle(_value, deg, a.clamp(0.0, 1.0));
+    return _value;
+  }
+
+  void reset() {
+    _value = double.nan;
+    _lastAt = null;
+  }
+}

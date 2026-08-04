@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:sensors_plus/sensors_plus.dart';
 
 import '../../../core/constants/app_constants.dart';
-import '../../../core/utils/geo_math.dart';
+import '../domain/heading_calibration.dart';
 
 /// Tilt-compensated magnetic compass built from the accelerometer +
 /// magnetometer (the rally cluster's heading when stationary; GPS course is
@@ -21,7 +21,11 @@ class CompassService {
   double _ax = 0, _ay = 0, _az = 9.81;
   double _mx = 0, _my = 0, _mz = 0;
   bool _haveMag = false;
-  double _smoothed = double.nan;
+
+  /// TIME-based, not sample-based. A fixed per-sample weight made the needle's
+  /// lag a property of the device's magnetometer rate — see [AngleSmoother].
+  final AngleSmoother _smoother =
+      AngleSmoother(AppConstants.headingSmoothingTau);
 
   /// Smoothed magnetic heading in degrees (0..360). Null-safe: emits nothing
   /// until the magnetometer reports.
@@ -54,10 +58,7 @@ class CompassService {
     if (!_haveMag) return;
     final heading = _computeAzimuth();
     if (heading == null) return;
-    _smoothed = _smoothed.isNaN
-        ? heading
-        : GeoMath.smoothAngle(_smoothed, heading, AppConstants.headingSmoothing);
-    _controller?.add(_smoothed);
+    _controller?.add(_smoother.add(heading, DateTime.now()));
   }
 
   /// Rotation-matrix azimuth (degrees, 0..360) from gravity + magnetic field.
@@ -93,7 +94,7 @@ class CompassService {
     _accelSub = null;
     _magSub = null;
     _haveMag = false;
-    _smoothed = double.nan;
+    _smoother.reset();
   }
 
   void dispose() {

@@ -83,7 +83,42 @@ class AppConstants {
 
   // ---- Compass ----
   /// EMA smoothing for heading to stop needle chatter.
+  ///
+  /// Still used for the GPS-course branch, which is sample-driven at the fix
+  /// rate. The MAGNETIC branch now uses [headingSmoothingTau] instead — see
+  /// below for why a per-sample weight was the wrong shape there.
   static const double headingSmoothing = 0.2;
+
+  /// Time constant for the magnetic compass needle.
+  ///
+  /// The compass previously applied a fixed per-sample weight of 0.2 on every
+  /// magnetometer event, which makes the lag a property of the device's sensor
+  /// rate rather than of the clock: tau = dt / -ln(0.8), about 4.5 sample
+  /// intervals. At sensors_plus's default 200 ms that is tau ~ 0.9 s and about
+  /// 2.7 s to settle, and a different number on every handset. Reported from
+  /// the road as "laggy, has a delay".
+  ///
+  /// 400 ms is deliberately steadier than the speed display's 250 ms: a needle
+  /// that chatters is unreadable, and heading changes slower than speed does.
+  static const Duration headingSmoothingTau = Duration(milliseconds: 400);
+
+  /// Observations needed before the app will call a magnetic heading "TRUE".
+  ///
+  /// The "Use true north" switch used to change only a LABEL — no declination
+  /// was ever applied. Until this many agreeing GPS-course observations have
+  /// been folded in, the cluster must keep saying MAG rather than asserting
+  /// something it has not measured.
+  static const int headingCalibrationSamples = 20;
+
+  /// A GPS course is only direction-of-travel above this (m/s ~ 18 km/h).
+  /// Far above the §6.1 moving gate on purpose: heading needs more evidence
+  /// than distance does, and a crawling vehicle's course is noise.
+  static const double headingCalibrationMinSpeedMps = 5.0;
+
+  /// EMA rate for the learned magnetic/true offset. Slow: this is a property
+  /// of the location and the vehicle's own steel, not something that should
+  /// chase a single bad fix.
+  static const double headingCalibrationSmoothing = 0.15;
 
   // ---- Tunnel handling / distance engine ----
   /// SPEC-v2 §15.1: "No location update received for more than 3 seconds,
