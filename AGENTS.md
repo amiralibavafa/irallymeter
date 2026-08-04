@@ -30,7 +30,7 @@ dart run tool/generate_fixtures.dart   # regenerates test/fixtures/*.jsonl
 
 There is **no `npm test`**. There is no CI in this repo yet.
 
-Current baseline: **295 pass / 3 skip / 0 fail**.
+Current baseline: **310 pass / 1 skip / 0 fail**.
 
 ---
 
@@ -52,16 +52,17 @@ already swept an unrelated Android regression into a commit.
 
 ---
 
-## The three skipped tests are deliberate. Do not "fix" them.
+## The one skipped test is deliberate. Do not "fix" it.
 
-1. `dashboard_layout_test` 02 — portrait top-bar overflow. **Pre-existing, and
-   the repo owner's own skip.**
-2. `dashboard_layout_test` 05 — was passing **vacuously**; its `TUNNEL` finder
-   matched a button that §15 deleted. Cannot pass until
-   `DistanceEngineController`'s wall clock is injectable.
-3. `road_scenarios_test` 12 — urban canyon reads **−12.50 %**. Asserted at
-   **full strength** against §19's 1 %. It is a known, measured limitation
-   awaiting a road-test number, not a broken test.
+`road_scenarios_test` 12 — urban canyon reads **−12.50 %**. Asserted at **full
+strength** against §19's 1 %. It is a known, measured limitation awaiting a
+road-test number, not a broken test.
+
+Two others were skipped and are now GREEN, both because the underlying defect
+was fixed rather than the assertion softened: `dashboard_layout_test` 02 (the
+portrait top bar overflowed by 142 px; portrait now stacks the nav row) and 05
+(it was passing **vacuously** — its `TUNNEL` finder matched a button §15 had
+deleted — until `DistanceEngineController`'s clock became injectable).
 
 **Weakening any assertion to make a suite green is the one thing that will get a
 change rejected outright.** If a test fails, either the code is wrong or the
@@ -111,6 +112,17 @@ Read `docs/SPEC-v2.md` before changing measurement behaviour. The five that bite
 
 ---
 
+## Two traps in the widget tests
+
+* **Real I/O inside a `testWidgets` body never completes.** The body runs in
+  flutter_test's FAKE async zone, so an awaited Hive write or `dart:io` call
+  hangs until the harness kills it. Use `tester.runAsync`. Worse, Hive
+  serialises per box, so a write left pending by one test blocks the NEXT
+  test's setup — the failure lands on an innocent test.
+* **Do not pump `IRallyMeterApp` with the GPS gate open.** The root then starts
+  the distance engine, whose heartbeat timers do not settle under fake async.
+  `dashboard_layout_test` pumps `DashboardScreen` directly for this reason.
+
 ## What a good change looks like
 
 * One behaviour change at a time, with `flutter analyze` clean and
@@ -133,3 +145,6 @@ Say so rather than assuming otherwise:
 * **The app has never run on iOS.** It compiles for the simulator; that is all.
 * Recovery from location services being toggled off and on is **unproven on
   hardware** — see `docs/ROAD-TEST.md` item 1.
+* There is **no in-app way to retry a denied permission.** The rationale screen
+  is shown once and points at Android Settings. Deliberate, and awaiting a
+  product decision — do not add a nag screen.

@@ -4,8 +4,8 @@ Everything from Phases 3 and 4 that needs **your** answer, in one place. Nothing
 here is blocked on more work from our side — each one is a decision only you can
 make, either because it is your product or because it needs a real drive.
 
-Branches: `SA-V1` (backend, 295 pass / 3 skip) and `SA-V2` (four contained UI
-fixes). Neither is merged.
+Branches: `SA-V1` (backend) and `SA-V2` (all nine Phase 4 items).
+**310 pass / 1 skip / 0 fail.** Neither is merged.
 
 ---
 
@@ -34,13 +34,15 @@ under-estimate recovers on the next fix.
 
 ## B. Product decisions
 
-**B1 — Is PORTRAIT a supported orientation?**
-The top bar overflows by 70 px normally and **137 px in Estimation Mode** (it
-scales with the status text). Landscape — the co-driver configuration — is
-completely clean in both day and night mode. Closing portrait means shrinking
-glove-sized touch targets or dropping something from the top bar.
-Saam's view is "support it, fix the layout". **Do you agree, or is
-landscape-only the honest answer?**
+**B1 — Portrait is now supported. Is the two-row top bar acceptable?**
+ANSWERED AND BUILT, but you own the look. The bar overflowed by 142 px in
+portrait — your own skipped test recorded exactly that number, and it grew with
+the status text (137 px in Estimation Mode). Saam chose "support portrait, fix
+the layout", so in portrait ONLY the five nav icons now sit on their own row
+under the clock and status badge. Nothing was shrunk: the touch targets stay
+glove-sized and end up further apart, and it costs ~56 px of a dimension that
+has 1038. Landscape is untouched.
+**Happy with that, or would you rather portrait dropped something instead?**
 
 **B2 — Which MAP TILE SOURCE?**
 This blocks offline maps entirely, and offline is a hard requirement for rally
@@ -71,6 +73,14 @@ copy stops working at once**. Nobody has ever run this app on iOS; it only
 compiles for the simulator. **Is iOS a shipping platform, or Android-first with
 iOS best-effort?**
 
+**B7 — a denied permission has no in-app way back.** The rationale screen is
+shown once and its footer points at Android Settings, which is honest but not
+generous. The alternative is re-showing it whenever location is missing, and
+that nags anyone who denied on purpose. **Add a "grant permission" button in
+Settings, or leave it?** My recommendation is the Settings button, because
+someone who taps DON'T ALLOW by accident currently has a dead app and no clue
+why.
+
 **B6 — confirm two floors are deliberate**, because Flutter's migrators keep
 trying to raise them and I keep reverting them:
 `minSdk = 23` (Android 6.0) and `IPHONEOS_DEPLOYMENT_TARGET = 12.0`. Raising
@@ -84,13 +94,13 @@ them drops older handsets. **Keep both?**
 OSM User-Agent, the app label, and removing an unused dependency. These are the
 ones still waiting:
 
-| | Item | Effort |
+**All nine are now built on `SA-V2`.** P1 launch-hang guard, P4 app label, P5
+OSM User-Agent, P10 unused dependency, P8 injectable engine clock, P12 compass
+tilt reference, P2 portrait layout, P3 rationale screen.
+
+| | Still open | Why |
 |---|---|---|
-| P2 | Fix the portrait layout | real work — see B1 |
-| P3 | A rationale screen before the cold permission prompts (store-rejection risk) | one screen |
-| P8 | Injectable clock in `DistanceEngineController` — restores a skipped test that covers the worst-overflow state | ~20 lines |
-| P12 | Compass tilt compensation uses the raw accelerometer, so heading wanders while accelerating, braking and cornering | medium |
-| P9 | Dependency upgrades — `geolocator` 13→14, `flutter_map` 7→8, `riverpod` 2→3 | own branch, after merge |
+| P9 | Dependency upgrades — `geolocator` 13→14, `flutter_map` 7→8, `riverpod` 2→3 | Deliberately its own branch AFTER merge. Three major bumps do not belong in a review branch |
 
 ---
 
