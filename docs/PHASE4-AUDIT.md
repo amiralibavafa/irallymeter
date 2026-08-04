@@ -5,11 +5,21 @@ Amirali or Saam picking it.** Approved items go on a new branch `SA-V2`; this
 document exists so the choice is made deliberately rather than by whoever
 touches the file next.
 
-Written 2026-08-03 against `SA-V1` at `fdc2efd`. Evidence is from the live app on
+Written 2026-08-03, updated against `SA-V1` at `b16e42d` (295 pass / 3 skip). Evidence is from the live app on
 the `rally_aosp` emulator (Android 16, no Play Services) plus the codebase, not
 from reading the widget tree alone.
 
 ---
+
+## STATUS SINCE THIS WAS FIRST WRITTEN
+
+Phase 3 continued after the first draft and **closed four of these by itself**:
+`P5` (OSM User-Agent) and `P10` (unused `intl`) are still open, but `P11` (§15.3
+had no screen) shipped in `[3.17]`, and the compass items behind `P12` were
+half-fixed in `[3.11]`. Two NEW findings from the landscape/night pass are at
+the bottom as `N1` and `N2`.
+
+**Everything here remains PROPOSE-ONLY. No `SA-V2` branch exists.**
 
 ## The three-line version
 
@@ -292,3 +302,51 @@ Then decide **`P2`** (is portrait supported?) and **`P6`** (which tile source?),
 because everything else in the UI backlog queues behind those two answers.
 
 Leave **`P9`** until `SA-V1` is merged.
+
+
+---
+
+## N1 · At night, §5.1's colour signal collapses — the BADGE is what saves it — LOW, but do not "simplify" it away
+
+Measured from the running app in night mode:
+
+| State | Colour |
+|---|---|
+| Night "measured" | `#FF5A3C` amber-red |
+| Estimated | `#FFA726` amber |
+| Low confidence | `#FF3B30` red |
+
+All three are the same hue family. On a vibrating mount at night, the amber
+digits §5.1 relies on are **not** reliably distinguishable from a normal night
+reading.
+
+**This is not a defect — it is a validated design decision.** `[3.5]` made the
+indicator a TEXT badge (`EST` / `EST?` / `SYNC`) rather than colour alone,
+precisely because "colour fails in sunlight, on a night cluster, and for a
+colour-blind co-driver". Night mode is the proof. Recorded here so nobody later
+decides the badge is redundant and deletes it, which would leave §5.1 with no
+working signal at night at all.
+
+**Action: none. Guard the badge.**
+
+---
+
+## N2 · Landscape — the actual co-driver configuration — is clean
+
+Captured live at 2400×1080 (`/tmp/shots/60`, `61`):
+
+* **no overflow banner in either day or night mode** — `P2` is a portrait-only
+  problem, which sharpens the "is portrait supported?" question rather than
+  broadening it
+* the hero speed occupies roughly half the panel — readable at arm's length
+* the correction row (`-100 -10 RST A +10 +100`) sits bottom-right, under a
+  right-hand co-driver's hand
+* Trip A carries an orange active-counter border, so which counter the buttons
+  act on is unambiguous
+
+The one cosmetic note: the `AVG (ALL)` tile has noticeably more dead space than
+its neighbours, because a two-digit average sits in a box sized for `76.46 km`.
+Cosmetic only.
+
+**Action: none required.** This is the configuration the cluster was designed
+around and it holds up.
