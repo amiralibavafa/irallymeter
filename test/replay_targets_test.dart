@@ -130,19 +130,7 @@ void main() {
       expect(r.totalMeters, lessThan(0.5),
           reason: 'accumulated ${r.totalMeters.toStringAsFixed(3)} m while '
               'stationary — the trip counter would visibly creep');
-    },
-        // FAILS TODAY, BY DESIGN — measured 2555.451 m on first run.
-        //
-        // This is the §6.1 gap in `docs/GAP.md` (F2) reproduced with a number:
-        // `GpsDistanceSource` rejects steps below a FIXED 1.0 m
-        // (`app_constants.dart:45`), which an 8 m fix wanders past on almost
-        // every sample. §6.1 requires the floor to be the fix's OWN accuracy,
-        // plus a 1.5 m/s speed gate — neither exists yet.
-        //
-        // The assertion is deliberately left at full strength rather than
-        // relaxed to the current behaviour. Step 3.2 implements §6.1 and
-        // removes this skip; if it does not make this pass, 3.2 is not done.
-        skip: 'unskipped by step 3.2 (§6.1 noise gating) — see docs/GAP.md F2');
+    });
 
     test('T3 · 2 km GPS-free section → error ≤ 3 %', () {
       final r = replay('tunnel_2km.jsonl');

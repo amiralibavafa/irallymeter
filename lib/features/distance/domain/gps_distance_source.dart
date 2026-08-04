@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/geo_math.dart';
 import '../../gps/domain/gps_sample.dart';
@@ -14,8 +16,9 @@ import 'distance_delta.dart';
 ///  • Re-anchor without integrating across dropouts and out-of-order fixes, so
 ///    a blackout never inflates distance or elapsed time.
 ///  • Reject physically impossible jumps (teleports after a dropout).
-///  • Report sub-[AppConstants.minMovementMeters] steps as ZERO movement rather
-///    than dropping them — see below.
+///  • Apply the SPEC-v2 §6.1 noise gates — below 1.5 m/s, or a displacement
+///    smaller than the fix's own horizontal accuracy — and report those as ZERO
+///    movement rather than dropping them; see below.
 ///
 /// The zero-vs-null distinction is the contract both consumers depend on, and
 /// it is what preserves their (correct, but different) stop behaviour:
@@ -79,17 +82,63 @@ class GpsDistanceSource {
       _last = s;
       return null;
     }
-    final impliedSpeed = meters / (dtMs / 1000.0);
+    final dtSec = dtMs / 1000.0;
+    final impliedSpeed = meters / dtSec;
     if (impliedSpeed > 90.0) {
       _last = s;
       return null;
     }
 
+    // SPEC-v2 §6.1 rule 4 ("reject a fix implying a speed inconsistent with the
+    // previous reading — for example a jump of more than three times the
+    // expected displacement") is DELIBERATELY NOT IMPLEMENTED HERE. It is
+    // deferred to step 3.4, for two reasons:
+    //
+    //  1. §15.1 lists the identical condition as a tunnel-ENTRY trigger, so
+    //     implementing it twice, in two places, with two thresholds is how the
+    //     two copies drift apart. It belongs wherever §15's thresholds live.
+    //  2. Implemented strictly it rejects real data in `average_speed_test.dart`
+    //     test 07, whose third step covers 111.2 m in 2 s straight after
+    //     55.6 m in 3 s — exactly 3x the expected displacement, and a vehicle
+    //     accelerating 67 -> 200 km/h in two seconds at roughly 2 g. Every
+    //     physically-grounded form of the rule rejects it. Whether that test's
+    //     data or the rule should give is a question for the repo's owners, not
+    //     something to settle by quietly relaxing one of them.
+    //
+    // The absolute 90 m/s teleport guard above still stands in the meantime.
+
     _last = s;
 
-    // Real movement only — anything under the floor is standstill jitter, and
-    // is reported as an accepted pair that covered zero ground.
-    final moved = meters >= AppConstants.minMovementMeters ? meters : 0.0;
+    // The speed this pair actually happened at (§7.1: Doppler first).
+    //
+    // A Doppler reading of EXACTLY zero is deliberately not trusted to veto a
+    // displacement. Platforms that supply no speed at all report 0.0, not null
+    // and not NaN — `gps_providers.dart` documents the Android emulator and
+    // "some real GPS chips" doing precisely this. Treating that 0 as an
+    // authoritative standstill would gate out every metre on those devices and
+    // the app would measure nothing whatsoever, which is a far worse failure
+    // than the standstill drift §6.1 exists to stop. When the receiver says
+    // zero, the positions get to speak.
+    final dopplerUsable = s.hasValidDopplerSpeed && s.speedMps > 0;
+    final validSpeed = dopplerUsable ? s.speedMps : impliedSpeed;
+
+    // SPEC-v2 §6.1, rules 2 and 3 — what separates movement from noise.
+    //
+    //   rule 2: below 1.5 m/s the vehicle is not meaningfully moving, so the
+    //           displacement is drift whatever its size.
+    //   rule 3: a displacement smaller than the fix's OWN horizontal accuracy
+    //           cannot be distinguished from that fix's error. This replaces a
+    //           fixed 1.0 m floor, which was the bug: an 8 m fix wanders past
+    //           1 m on nearly every sample, so a parked car accumulated
+    //           distance indefinitely (2555 m over 10 minutes, measured).
+    //
+    // Both report an ACCEPTED pair that covered zero ground rather than a
+    // rejected one, so elapsed time still accrues and a running average
+    // correctly decays toward zero while stopped.
+    final noiseFloor =
+        math.max(AppConstants.minMovementMeters, s.accuracyM);
+    final moving = validSpeed >= AppConstants.movingThresholdMps;
+    final moved = (moving && meters >= noiseFloor) ? meters : 0.0;
 
     return DistanceDelta(
       timestamp: s.timestamp,
