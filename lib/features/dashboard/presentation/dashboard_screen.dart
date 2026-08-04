@@ -30,19 +30,23 @@ class DashboardScreen extends ConsumerWidget {
           children: [
             Padding(
               padding: const EdgeInsets.all(10),
-              child: Column(
-                children: [
-                  _TopBar(),
-                  const SizedBox(height: 10),
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, c) {
-                        final landscape = c.maxWidth > c.maxHeight;
-                        return landscape ? const _LandscapeLayout() : const _PortraitLayout();
-                      },
-                    ),
-                  ),
-                ],
+              // The orientation decision is made ONCE, here, because the top bar
+              // needs it too: in portrait the bar is over-subscribed and stacks.
+              child: LayoutBuilder(
+                builder: (context, c) {
+                  final landscape = c.maxWidth > c.maxHeight;
+                  return Column(
+                    children: [
+                      _TopBar(landscape: landscape),
+                      const SizedBox(height: 10),
+                      Expanded(
+                        child: landscape
+                            ? const _LandscapeLayout()
+                            : const _PortraitLayout(),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
             if (locked) const _LockOverlay(),
@@ -53,7 +57,33 @@ class DashboardScreen extends ConsumerWidget {
   }
 }
 
+/// The header: clock, measurement status, and the nav targets.
+///
+/// ## Why portrait stacks and landscape does not (P2)
+///
+/// The bar is over-subscribed in portrait and always was. On a 465 px logical
+/// width, 10 px of padding each side leaves 445, and the contents want
+/// clock (~88) + gap (12) + status badge (up to ~225 when it reads
+/// `TUNNEL · EST 0.00`) + five 48 px nav targets (240) = ~565. Measured live it
+/// overflowed by 70 px normally, 79 px on `GPS SYNC` and **137 px in Estimation
+/// Mode** — it grew with the status text, which is exactly when the co-driver
+/// most needs to read it.
+///
+/// Every way of closing that on ONE row costs something that matters:
+/// shrinking the touch targets breaks glove operation, ellipsising the badge
+/// hides whether the distance can be trusted, and hiding nav behind a menu adds
+/// a tap while moving. Portrait has 1038 px of height and the instruments below
+/// are flex-sized, so a second row costs ~56 px of a dimension we have plenty
+/// of and nothing at all of the ones we do not.
+///
+/// Landscape is 1018 px wide, has never overflowed in day or night, and is the
+/// co-driver configuration the cluster is designed around — so it is left
+/// exactly as it was.
 class _TopBar extends ConsumerWidget {
+  const _TopBar({required this.landscape});
+
+  final bool landscape;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.read(settingsProvider.notifier);
@@ -66,24 +96,48 @@ class _TopBar extends ConsumerWidget {
           constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
         );
 
-    return Row(
+    final nav = <Widget>[
+      iconBtn(night ? Icons.dark_mode : Icons.light_mode, settings.toggleDisplayMode),
+      iconBtn(Icons.timer_outlined, () => context.push('/timer')),
+      iconBtn(Icons.map_outlined, () => context.push('/map')),
+      iconBtn(Icons.settings_outlined, () => context.push('/settings')),
+      iconBtn(Icons.lock_outline, settings.toggleLock, color: AppColors.accent),
+    ];
+
+    if (landscape) {
+      return Row(
+        children: [
+          const AppClock(),
+          const SizedBox(width: 12),
+          // Deliberately NOT Flexible here. Landscape has the width for the
+          // badge at its natural size, and an unreadable GPS/Tunnel status is
+          // far worse than a clipped nav icon on a tool whose whole job is
+          // telling the co-driver whether the distance can be trusted.
+          const GpsStatusBar(),
+          const Spacer(),
+          ...nav,
+        ],
+      );
+    }
+
+    return Column(
       children: [
-        const AppClock(),
-        const SizedBox(width: 12),
-        // Deliberately NOT Flexible. On a narrow portrait screen the clock plus
-        // five 48 px nav targets already over-subscribe the bar, so letting the
-        // badge shrink starves it to a bare icon — and an unreadable GPS/Tunnel
-        // status is far worse than a clipped nav icon on a tool whose whole job
-        // is telling the co-driver whether the distance can be trusted.
-        // The badge keeps its natural width; the pre-existing portrait overflow
-        // is tracked in dashboard_layout_test.dart.
-        const GpsStatusBar(),
-        const Spacer(),
-        iconBtn(night ? Icons.dark_mode : Icons.light_mode, settings.toggleDisplayMode),
-        iconBtn(Icons.timer_outlined, () => context.push('/timer')),
-        iconBtn(Icons.map_outlined, () => context.push('/map')),
-        iconBtn(Icons.settings_outlined, () => context.push('/settings')),
-        iconBtn(Icons.lock_outline, settings.toggleLock, color: AppColors.accent),
+        Row(
+          children: const [
+            AppClock(),
+            SizedBox(width: 12),
+            // Flexible ONLY in portrait, and only as a last resort: with 445 px
+            // available and the clock taking 100, the badge has ~345 against a
+            // natural ~225, so it renders in full in every state seen on the
+            // road. This exists so a freak long value ellipsises instead of
+            // overflowing — it is a floor, not the normal case.
+            Flexible(child: GpsStatusBar()),
+          ],
+        ),
+        const SizedBox(height: 6),
+        // Spread rather than packed: with a whole row to themselves the targets
+        // are further apart than they were, which is the point on a moving car.
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: nav),
       ],
     );
   }

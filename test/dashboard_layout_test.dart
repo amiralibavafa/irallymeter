@@ -64,25 +64,44 @@ void main() {
       await _expectNoOverflow(tester);
     });
 
+    // UNSKIPPED in [SA-V2] by P2, and the assertion is UNCHANGED. This was
+    // amir's own skip for a real, pre-existing overflow: the clock (~88) +
+    // status badge + five 48 px nav targets (240) exceed a 465 px width, and it
+    // grew to 137 px in Estimation Mode because the badge text is longer there.
+    // Portrait now stacks the nav row under the clock/status row instead of
+    // shrinking the glove-sized targets or ellipsising the status. See the
+    // _TopBar doc comment for why every one-row fix was rejected.
     testWidgets('02 · portrait renders without overflow', (tester) async {
       await _pumpDashboard(tester, storage, pixelPortrait);
       await _expectNoOverflow(tester);
-    },
-        // KNOWN PRE-EXISTING ISSUE — not caused by the tunnel feature.
-        //
-        // The top bar is over-subscribed on a narrow portrait screen: the
-        // clock (~88) + status badge + five 48 px nav targets (240) exceed a
-        // 465 px width. Measured against a build with the tunnel feature
-        // removed entirely, portrait already overflowed by 142 px; the status
-        // badge is now Flexible, which brings it down to ~34 px, but closing
-        // the rest means shrinking the glove-sized touch targets — a bad trade
-        // on a rally tool, and a call for the app's owner, not this feature.
-        //
-        // Landscape (tests 01/03/04) is the co-driver configuration the cluster
-        // is designed around and is held strictly overflow-free.
-        // Skipped: pre-existing portrait top-bar overflow (~142 px before this
-        // feature existed). Landscape is held strictly green instead.
-        skip: true);
+    });
+
+    testWidgets('02b · portrait survives the LONGEST status text', (tester) async {
+      // The worst case measured on device: 137 px of overflow, because
+      // "TUNNEL · EST 0.00" is far wider than "GPS ±5m". Fixing portrait at
+      // rest would be worthless if it broke again the moment the app entered a
+      // tunnel — which is the one state where the co-driver is reading it.
+      await _pumpDashboard(tester, storage, pixelPortrait,
+          settle: const Duration(seconds: 4));
+      expect(find.textContaining('TUNNEL'), findsWidgets,
+          reason: 'the engine should have entered Tunnel Mode by now');
+      await _expectNoOverflow(tester);
+    });
+
+    testWidgets('02c · portrait keeps all five nav targets at glove size',
+        (tester) async {
+      // The rejected one-row fixes all worked by shrinking these or hiding them
+      // behind a menu. If a later change quietly does that, this fails.
+      await _pumpDashboard(tester, storage, pixelPortrait);
+      final buttons = find.byType(IconButton);
+      expect(tester.widgetList(buttons).length, 5);
+      for (final e in buttons.evaluate()) {
+        final size = tester.getSize(find.byWidget(e.widget));
+        expect(size.width, greaterThanOrEqualTo(48.0));
+        expect(size.height, greaterThanOrEqualTo(48.0));
+      }
+      await _expectNoOverflow(tester);
+    });
 
     testWidgets('03 · a small landscape phone renders without overflow',
         (tester) async {
