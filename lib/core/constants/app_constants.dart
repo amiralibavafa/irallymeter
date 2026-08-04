@@ -69,16 +69,40 @@ class AppConstants {
   static const double headingSmoothing = 0.2;
 
   // ---- Tunnel handling / distance engine ----
-  /// How long GPS must stay unhealthy (no fix, or accuracy worse than
-  /// [usableAccuracyMeters]) before the engine declares Tunnel Mode. Long
-  /// enough that a couple of skipped fixes don't flap the source, short enough
-  /// that a real tunnel entry is caught almost immediately.
-  static const Duration tunnelConfirmDelay = Duration(seconds: 2);
+  /// SPEC-v2 §15.1: "No location update received for more than 3 seconds,
+  /// where updates are expected at 1 Hz." Long enough that a couple of skipped
+  /// fixes don't flap the source, short enough that a real tunnel entry is
+  /// caught almost immediately.
+  static const Duration tunnelConfirmDelay = Duration(seconds: 3);
 
-  /// How long GPS must stay healthy again before we leave Tunnel Mode. Tunnel
-  /// exits produce a burst of wild fixes as the chip re-acquires; waiting stops
-  /// us trusting them and then immediately dropping back.
-  static const Duration tunnelExitConfirmDelay = Duration(milliseconds: 1500);
+  /// SPEC-v2 §15.1: a fix this poor (m) means estimation is already better than
+  /// what the receiver is offering, so Estimation Mode is entered at once
+  /// rather than waiting out [tunnelConfirmDelay].
+  ///
+  /// Deliberately far looser than [usableAccuracyMeters], which governs whether
+  /// a fix may be INTEGRATED. Between the two the engine neither integrates the
+  /// fix nor abandons GPS — it waits, which is the right response to a fix that
+  /// is degraded but not useless.
+  static const double estimationEntryAccuracyMeters = 50.0;
+
+  /// SPEC-v2 §15.2: "Three consecutive fixes with horizontal accuracy of 20 m
+  /// or better." Stricter than the entry threshold on purpose — that gap IS the
+  /// debouncing §15.2 asks for, and it is what stops the display flickering
+  /// between modes at the edge of coverage.
+  static const double estimationExitAccuracyMeters = 20.0;
+
+  /// SPEC-v2 §15.2: how many consecutive good fixes confirm recovery.
+  ///
+  /// A COUNT, not a duration. A tunnel exit throws out a burst of wild fixes as
+  /// the chip re-acquires, and what makes them trustworthy is that several
+  /// agree — not that time passed. A duration would mean one fix on a 1 Hz chip
+  /// and seven on a 5 Hz one.
+  static const int estimationExitConsecutiveFixes = 3;
+
+  /// SPEC-v2 §15.2: recovery fixes must be "mutually consistent — each implies
+  /// a plausible speed relative to the previous one". This is that plausibility
+  /// bound (m/s); a pair implying more is re-acquisition noise, not driving.
+  static const double estimationExitMaxImpliedSpeedMps = 90.0;
 
   /// Engine heartbeat. Drives dropout detection (which must fire when samples
   /// STOP arriving, so it cannot be sample-driven) and reconciliation payout.

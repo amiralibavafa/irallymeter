@@ -57,7 +57,7 @@ void main() {
       h.tick(ms: 2500);
       expect(h.state.tunnelMode, isFalse);
 
-      h.tick(ms: 3100); // > 2 s since the last healthy fix
+      h.tick(ms: 4100); // > 3 s since the last healthy fix (§15.1)
       expect(h.state.tunnelMode, isTrue);
       expect(h.state.source, DistanceSource.sensor);
     });
@@ -89,10 +89,10 @@ void main() {
     });
 
     test('05 · distance keeps accruing from sensors while GPS is dark', () {
-      final h = _Harness()..driveInto(tunnelAtMs: 3100, speedMps: 20);
+      final h = _Harness()..driveInto(tunnelAtMs: 4100, speedMps: 20);
 
       // 2 s of coasting at the 20 m/s entry speed ≈ 40 m.
-      h.coast(fromMs: 3100, toMs: 5100);
+      h.coast(fromMs: 4100, toMs: 6100);
 
       final sensor = h.deltas.where((d) => d.source == DistanceSource.sensor);
       expect(sensor, isNotEmpty);
@@ -102,8 +102,8 @@ void main() {
     });
 
     test('06 · a single reacquired fix does not end Tunnel Mode', () {
-      final h = _Harness()..driveInto(tunnelAtMs: 3100, speedMps: 20);
-      h.coast(fromMs: 3100, toMs: 5100);
+      final h = _Harness()..driveInto(tunnelAtMs: 4100, speedMps: 20);
+      h.coast(fromMs: 4100, toMs: 5100);
 
       // Tunnel exits throw out a burst of plausible-but-wrong fixes.
       h.gps(lat: 46.002, lon: 8.0, speed: 20, ms: 5200);
@@ -111,11 +111,12 @@ void main() {
     });
 
     test('07 · sustained healthy fixes end Tunnel Mode', () {
-      final h = _Harness()..driveInto(tunnelAtMs: 3100, speedMps: 20);
-      h.coast(fromMs: 3100, toMs: 5100);
+      final h = _Harness()..driveInto(tunnelAtMs: 4100, speedMps: 20);
+      h.coast(fromMs: 4100, toMs: 5100);
 
       h.gps(lat: 46.002, lon: 8.0, speed: 20, ms: 5200);
-      h.gps(lat: 46.0021, lon: 8.0, speed: 20, ms: 6900); // > 1.5 s healthy
+      h.gps(lat: 46.0021, lon: 8.0, speed: 20, ms: 6900);
+      h.gps(lat: 46.0022, lon: 8.0, speed: 20, ms: 7900); // §15.2: 3 fixes
 
       expect(h.state.tunnelMode, isFalse);
       expect(h.state.source, DistanceSource.gps);
@@ -126,8 +127,8 @@ void main() {
       // The regression this guards: a short tunnel's entry/exit fix pair sits
       // INSIDE the stale-timeout window, so it looks like an ordinary (very
       // fast) increment and would be added a second time without re-anchoring.
-      final h = _Harness()..driveInto(tunnelAtMs: 3100, speedMps: 20);
-      h.coast(fromMs: 3100, toMs: 5100);
+      final h = _Harness()..driveInto(tunnelAtMs: 4100, speedMps: 20);
+      h.coast(fromMs: 4100, toMs: 5100);
 
       final estimated = h.state.tunnelMeters;
       h.gps(lat: 46.002, lon: 8.0, speed: 20, ms: 5200);
@@ -296,12 +297,13 @@ void main() {
     test('20b · a genuine tunnel inside the duration bound still reconciles',
         () {
       // The suspension guard must not have disabled reconciliation outright.
-      final h = _Harness()..driveInto(tunnelAtMs: 3100, speedMps: 20);
-      h.coast(fromMs: 3100, toMs: 5100); // estimate ≈ 40 m
+      final h = _Harness()..driveInto(tunnelAtMs: 4100, speedMps: 20);
+      h.coast(fromMs: 4100, toMs: 5100); // estimate ≈ 40 m
 
       // Exit ~222 m from entry → a real, provable undershoot.
       h.gps(lat: 46.0022, lon: 8.0, speed: 20, ms: 5200);
       h.gps(lat: 46.0023, lon: 8.0, speed: 20, ms: 6900);
+      h.gps(lat: 46.0024, lon: 8.0, speed: 20, ms: 7900); // §15.2: 3 fixes
 
       expect(h.state.reconciling, isTrue,
           reason: 'a real tunnel undershoot must still be corrected');
@@ -311,12 +313,13 @@ void main() {
       // The chord is a LOWER bound on road distance — a curved tunnel is always
       // longer than the line through it. Correcting down to it would eat real
       // distance, so an estimate above the chord must be left untouched.
-      final h = _Harness()..driveInto(tunnelAtMs: 3100, speedMps: 30);
-      h.coast(fromMs: 3100, toMs: 9100); // estimate ≈ 180 m
+      final h = _Harness()..driveInto(tunnelAtMs: 4100, speedMps: 30);
+      h.coast(fromMs: 4100, toMs: 9100); // estimate ≈ 180 m
 
       // Exit only ~22 m from entry in a straight line (a hairpin tunnel).
       h.gps(lat: 46.0004, lon: 8.0, speed: 30, ms: 9200);
       h.gps(lat: 46.0005, lon: 8.0, speed: 30, ms: 10900);
+      h.gps(lat: 46.0006, lon: 8.0, speed: 30, ms: 11900); // §15.2: 3 fixes
 
       expect(h.state.tunnelMode, isFalse);
       expect(h.state.reconciling, isFalse,
@@ -397,14 +400,15 @@ void main() {
     });
 
     test('26 · recovery is decided by GPS health, not by the recording', () {
-      final h = _Harness()..driveInto(tunnelAtMs: 3100, speedMps: 20);
-      h.coast(fromMs: 3100, toMs: 5100);
+      final h = _Harness()..driveInto(tunnelAtMs: 4100, speedMps: 20);
+      h.coast(fromMs: 4100, toMs: 5100);
       h.engine.setManualTunnel(true, h.at(5150));
 
       // GPS comes back mid-leg. It is primary, so we must return to it rather
       // than keep dead-reckoning just because a leg is still being measured.
       h.gps(lat: 46.002, lon: 8.0, speed: 20, ms: 5200);
       h.gps(lat: 46.0021, lon: 8.0, speed: 20, ms: 6900);
+      h.gps(lat: 46.0022, lon: 8.0, speed: 20, ms: 7900); // §15.2: 3 fixes
 
       expect(h.state.tunnelMode, isFalse);
       expect(h.state.source, DistanceSource.gps);

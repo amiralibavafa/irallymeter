@@ -61,7 +61,6 @@ class DistanceEngine {
 
   // --- GPS health tracking (wall clock — see class doc) ---
   DateTime? _lastHealthyAt;
-  DateTime? _healthySince;
   GpsSample? _lastHealthySample;
   bool _lastSampleHealthy = false;
   double _gpsSpeedMps = 0;
@@ -69,6 +68,14 @@ class DistanceEngine {
   // --- Tunnel bookkeeping ---
   GpsSample? _tunnelEntryFix;
   bool _manualTunnel = false;
+
+  /// How many consecutive fixes have met BOTH §15.2 exit tests. Reset to zero
+  /// by any fix that fails either, so recovery must be confirmed afresh.
+  int _recoveryStreak = 0;
+
+  /// The last fix counted toward [_recoveryStreak], kept so the next one can be
+  /// checked for mutual consistency against it.
+  GpsSample? _recoveryLast;
 
   // ===========================================================================
   // Inputs
@@ -82,8 +89,10 @@ class DistanceEngine {
     if (!healthy) {
       // An unhealthy fix is indistinguishable from no fix for our purposes:
       // don't refresh the health clock, and drop the recovery streak.
-      _healthySince = null;
-      _maybeEnterTunnel(now);
+      _recoveryStreak = 0;
+      _recoveryLast = null;
+      _maybeEnterTunnel(now,
+          degradedFixAccuracyM: s.hasFix ? s.accuracyM : null);
       return;
     }
 
@@ -92,7 +101,6 @@ class DistanceEngine {
 
     _lastHealthyAt = now;
     _lastHealthySample = s;
-    _healthySince ??= now;
 
     // Track the entry-speed anchor from the fix itself, not just from emitted
     // increments: the very first fix produces no increment (it only anchors),
@@ -195,14 +203,31 @@ class DistanceEngine {
 
   MotionSample? _pendingMotion;
 
-  void _maybeEnterTunnel(DateTime now) {
+  /// SPEC-v2 §15.1 — enter Estimation Mode when ANY trigger fires.
+  ///
+  /// [degradedFix] carries the accuracy of a fix that has just arrived and been
+  /// rejected, when there is one. That is the difference between the two
+  /// triggers: the silence test can only fire from the heartbeat, because no
+  /// incoming sample can announce that samples have stopped; the accuracy test
+  /// can only fire from a sample, because silence carries no accuracy.
+  void _maybeEnterTunnel(DateTime now, {double? degradedFixAccuracyM}) {
     if (_state.tunnelMode) return;
 
     // No prior good fix → nothing to anchor an estimate to. Wait, don't guess.
     final lastHealthy = _lastHealthyAt;
     if (lastHealthy == null) return;
 
+    // §15.1: "No location update received for more than 3 seconds."
     if (now.difference(lastHealthy) >= AppConstants.tunnelConfirmDelay) {
+      _enterTunnel(now);
+      return;
+    }
+
+    // §15.1: "Reported horizontal accuracy is worse than 50 m." No waiting —
+    // a fix this poor is worse than the estimate that would replace it, so
+    // holding on to it for another three seconds only pollutes the trip.
+    if (degradedFixAccuracyM != null &&
+        degradedFixAccuracyM > AppConstants.estimationEntryAccuracyMeters) {
       _enterTunnel(now);
     }
   }
@@ -210,7 +235,8 @@ class DistanceEngine {
   void _enterTunnel(DateTime now) {
     _tunnelEntryFix = _lastHealthySample;
     _sensor.seed(_gpsSpeedMps, _pendingMotion?.timestamp ?? now);
-    _healthySince = null;
+    _recoveryStreak = 0;
+    _recoveryLast = null;
 
     _publish(_state.copyWith(
       source: DistanceSource.sensor,
@@ -221,16 +247,60 @@ class DistanceEngine {
     ));
   }
 
-  /// Recovery is decided purely by GPS health — a manual recording in progress
-  /// does not hold estimation open. GPS is primary: the moment it is back and
-  /// confirmed, we use it, and the leg simply carries on measuring against the
-  /// better source.
+  /// SPEC-v2 §15.2 — leave Estimation Mode only when GNSS is genuinely back.
+  ///
+  ///   "Three consecutive fixes with horizontal accuracy of 20 m or better.
+  ///    Those fixes are mutually consistent — each implies a plausible speed
+  ///    relative to the previous one."
+  ///
+  /// Counting fixes rather than waiting out a duration is the whole point. A
+  /// tunnel mouth throws out a burst of plausible-looking but wrong positions
+  /// while the chip re-acquires; what makes a recovery trustworthy is that
+  /// several fixes AGREE, not that time has passed. A timer would accept one
+  /// fix on a 1 Hz chip and seven on a 5 Hz one for the same wall-clock wait.
+  ///
+  /// Any fix that fails either test resets the streak to zero rather than
+  /// decrementing it, so a single bad fix mid-recovery restarts the count. That
+  /// is the debouncing §15.2 asks for, and it is what stops the dashboard
+  /// flickering between measured and estimated at the edge of coverage.
   void _maybeExitTunnel(GpsSample s, DateTime now) {
-    final since = _healthySince;
-    if (since == null) return;
-    if (now.difference(since) < AppConstants.tunnelExitConfirmDelay) return;
+    if (s.accuracyM > AppConstants.estimationExitAccuracyMeters) {
+      _recoveryStreak = 0;
+      _recoveryLast = null;
+      return;
+    }
 
-    _exitTunnel(s, now);
+    final prev = _recoveryLast;
+    if (prev != null && !_mutuallyConsistent(prev, s)) {
+      // Restart the streak AT this fix: it may be the first honest one.
+      _recoveryStreak = 1;
+      _recoveryLast = s;
+      return;
+    }
+
+    _recoveryStreak++;
+    _recoveryLast = s;
+
+    if (_recoveryStreak >= AppConstants.estimationExitConsecutiveFixes) {
+      _exitTunnel(s, now);
+    }
+  }
+
+  /// Whether [b] implies a plausible speed relative to [a] (SPEC-v2 §15.2).
+  bool _mutuallyConsistent(GpsSample a, GpsSample b) {
+    final dtMs = b.timestamp.difference(a.timestamp).inMilliseconds;
+    if (dtMs <= 0) return false;
+
+    final meters = GeoMath.distanceMeters(
+      a.latitude,
+      a.longitude,
+      b.latitude,
+      b.longitude,
+    );
+    if (!meters.isFinite) return false;
+
+    return meters / (dtMs / 1000.0) <=
+        AppConstants.estimationExitMaxImpliedSpeedMps;
   }
 
   void _exitTunnel(GpsSample exitFix, DateTime now) {
@@ -340,7 +410,8 @@ class DistanceEngine {
     _axis.reset();
     _reconciler.reset();
     _lastHealthyAt = null;
-    _healthySince = null;
+    _recoveryStreak = 0;
+    _recoveryLast = null;
     _lastHealthySample = null;
     _tunnelEntryFix = null;
     _pendingMotion = null;
