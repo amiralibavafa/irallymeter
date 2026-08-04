@@ -77,6 +77,16 @@ class DistanceEngine {
   // --- Tunnel bookkeeping ---
   GpsSample? _tunnelEntryFix;
 
+  /// When the inertial stream last delivered. A suspended app stops producing
+  /// motion samples; a car in a tunnel does not. That difference is what tells
+  /// a real blackout from a backgrounded process — see [_motionContinuous].
+  DateTime? _lastMotionAt;
+
+  /// Whether the inertial stream has run without a suspension-sized gap for the
+  /// whole of the current blackout. This is the evidence that lets a genuinely
+  /// long tunnel be reconciled instead of being written off as a suspension.
+  bool _motionContinuous = false;
+
   /// The entry-speed anchor the current estimate was seeded with. §15.3 calls
   /// this "the speed that was held"; it is captured at entry rather than read
   /// back at exit because [_gpsSpeedMps] has moved on by then.
@@ -138,6 +148,7 @@ class DistanceEngine {
   /// Fold in a motion sample. Used to learn the forward axis in clear air, and
   /// to estimate distance while in Tunnel Mode.
   void onMotionSample(MotionSample m, DateTime now) {
+    _noteMotion(now);
     _pendingMotion = m;
     if (!_state.tunnelMode) return;
 
@@ -156,6 +167,17 @@ class DistanceEngine {
   /// Heartbeat. Detects dropouts (which by definition cannot be sample-driven)
   /// and pays out any in-flight reconciliation.
   void tick(DateTime now) {
+    // A stalled inertial stream is only observable from the heartbeat, for the
+    // same reason a stalled GPS stream is: a sample that never arrives cannot
+    // report its own absence.
+    if (_state.tunnelMode && _motionContinuous) {
+      final last = _lastMotionAt;
+      if (last == null ||
+          now.difference(last) > AppConstants.motionContinuityGap) {
+        _motionContinuous = false;
+      }
+    }
+
     _maybeEnterTunnel(now);
 
     final correction = _reconciler.take(now);
@@ -207,6 +229,13 @@ class DistanceEngine {
   }
 
   void _enterTunnel(DateTime now) {
+    // Only claim continuity if the stream is live RIGHT NOW. Entering a tunnel
+    // on a device whose sensors were already silent must not inherit a trust we
+    // never earned.
+    final lastMotion = _lastMotionAt;
+    _motionContinuous = lastMotion != null &&
+        now.difference(lastMotion) <= AppConstants.motionContinuityGap;
+
     _tunnelEntryFix = _lastHealthySample;
     _tunnelEntrySpeedMps = _gpsSpeedMps;
     _sensor.seed(_gpsSpeedMps, _pendingMotion?.timestamp ?? now);
@@ -337,8 +366,16 @@ class DistanceEngine {
 
     // 1. Too long to be a tunnel → almost certainly a suspension. The chord is
     //    real driving we never observed, not estimation error.
+    // The cap depends on whether the inertial stream vouched for us. A car in
+    // a tunnel keeps producing motion samples; a suspended app does not. Where
+    // that evidence exists, a real tunnel is allowed to be long — Niayesh in
+    // Tehran is 399 s at 60 km/h and Lærdal is 1102 s at 80, both of which the
+    // old flat 5-minute cap silently refused to reconcile.
     final duration = now.difference(since);
-    if (duration > AppConstants.maxTunnelDuration) return 0;
+    final cap = _motionContinuous
+        ? AppConstants.maxTunnelDurationWithMotion
+        : AppConstants.maxTunnelDuration;
+    if (duration > cap) return 0;
 
     final chord = GeoMath.distanceMeters(
       entry.latitude,
@@ -407,6 +444,16 @@ class DistanceEngine {
     _axis.observe(motion, gpsAccel);
   }
 
+  void _noteMotion(DateTime now) {
+    final last = _lastMotionAt;
+    if (_state.tunnelMode &&
+        last != null &&
+        now.difference(last) > AppConstants.motionContinuityGap) {
+      _motionContinuous = false;
+    }
+    _lastMotionAt = now;
+  }
+
   void _emit(DistanceDelta d) {
     if (!d.meters.isFinite || d.meters < 0) return; // Never emit bad distance.
     onDelta(d);
@@ -429,6 +476,8 @@ class DistanceEngine {
     _lastHealthySample = null;
     _tunnelEntryFix = null;
     _tunnelEntrySpeedMps = 0;
+    _lastMotionAt = null;
+    _motionContinuous = false;
     _pendingMotion = null;
     _gpsSpeedMps = 0;
     // The §15.3 log belongs to the leg, like every other accumulated number

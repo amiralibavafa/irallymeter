@@ -225,19 +225,43 @@ class AppConstants {
   /// Residuals below this (m) are noise — not worth reconciling.
   static const double minReconcileMeters = 0.5;
 
-  /// Past this, a blackout is not a tunnel.
+  /// Past this, a blackout is not a tunnel — **when we have no other evidence.**
   ///
   /// A backgrounded/suspended app stops receiving fixes exactly like a tunnel
   /// does, and on resume the entry→exit chord can be tens of kilometres of real
   /// driving we never saw. Reconciling that would dump it all onto the trip
-  /// counter. Beyond this age we re-anchor and decline to reconcile: unmeasured
-  /// distance is bad, but inventing distance is far worse.
+  /// counter.
   ///
-  /// The world's longest road tunnel (Lærdal, 24.5 km) takes ~18 min at 80 km/h,
-  /// so this is not a practical limit on real tunnels — it's a sanity bound. It
-  /// is generous because the sensor estimate's error grows linearly, so a
-  /// genuinely long tunnel is already the estimate's problem, not this cap's.
+  /// **This used to be the ONLY test, and it was wrong.** The old comment here
+  /// claimed 5 minutes "is not a practical limit on real tunnels" while citing
+  /// Lærdal, which at 80 km/h takes 18 minutes — 3.7x over its own cap. Worse,
+  /// it fails in the app's own market:
+  ///
+  ///   Niayesh, Tehran   6658 m @ 60 km/h = 399 s   OVER
+  ///   Alborz, Tehran    6400 m @ 60 km/h = 384 s   OVER
+  ///   Lærdal, Norway   24500 m @ 80 km/h = 1102 s  OVER
+  ///
+  /// So the app would have classified the second-longest urban tunnel in the
+  /// world, which its users drive through, as a suspended app and silently
+  /// declined to reconcile it.
+  ///
+  /// Duration was never the right discriminator. [motionContinuityGap] is:
+  /// a suspended app stops delivering INERTIAL samples too, while a car in a
+  /// tunnel keeps delivering them at 20 Hz. This cap now applies only as the
+  /// fallback for when that evidence is missing.
   static const Duration maxTunnelDuration = Duration(minutes: 5);
+
+  /// The blackout limit when the motion stream proves the app stayed alive.
+  ///
+  /// Generous enough for any real tunnel — Lærdal at 40 km/h is 37 minutes —
+  /// while still bounding the absurd case.
+  static const Duration maxTunnelDurationWithMotion = Duration(minutes: 45);
+
+  /// A gap this long in the INERTIAL stream means the app was suspended, not
+  /// that the car was in a tunnel. Motion normally arrives at ~20 Hz, so this
+  /// is three orders of magnitude of slack — it fires on suspension, not on
+  /// jitter.
+  static const Duration motionContinuityGap = Duration(seconds: 5);
 
   /// How many §15.3 estimated sections to keep in memory.
   ///
