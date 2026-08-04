@@ -233,7 +233,25 @@ picking what it looks like and where it lives.
 
 ---
 
-### P12 · Accepted, not defects — recorded so nobody "fixes" them
+### P12 · Compass tilt compensation uses the raw accelerometer — MEDIUM
+
+`[3.11]` fixed two of the three causes behind "laggy, has a delay and isn't
+accurate": the needle's lag is now time-based rather than sample-based, and
+"Use true north" no longer relabels an uncorrected magnetic reading as TRUE.
+
+**The third is untouched.** `compass_service.dart` derives "which way is down"
+from `accelerometerEventStream()`, which includes vehicle acceleration. So tilt
+compensation is wrong exactly when the car is accelerating, braking or
+cornering — which is when anyone looks at a compass.
+
+The app already computes a low-passed gravity vector elsewhere
+(`sensors_motion_service.dart` separates `userAccelerometerEventStream` from
+gravity for the distance engine). Reusing that, or low-passing harder here,
+is the fix. Left out of `[3.11]` because it changes the sensor pipeline rather
+than a constant, and it should be measured on a real drive first — see
+`docs/ROAD-TEST.md` §6.
+
+### P13 · Accepted, not defects — recorded so nobody "fixes" them
 
 - **Trip persistence flushes at most every 5 s** (`tripPersistInterval`), plus an
   immediate write on user edits and a flush on dispose. A crash or force-kill
