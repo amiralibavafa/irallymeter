@@ -123,7 +123,19 @@ Full protocol in `docs/ROAD-TEST.md`; the pass conditions are in
 
 ---
 
-## E. For information — no answer needed
+## E. One more, found while preparing a test build
+
+**B8 — the release APK is signed with the DEBUG keystore.**
+`android/app/build.gradle:45` is `signingConfig = signingConfigs.debug`. Fine for
+sideloading to your own phone, which is how your dad will get it. **Not fine for
+Cafe Bazaar, Myket or Play** — and an app first installed under a debug key
+cannot later be updated with a real one without uninstalling, which would wipe
+every tester's trips. **Generate a proper upload key before anything is
+distributed.** Whose key, and where is it kept?
+
+---
+
+## F. For information — no answer needed
 
 * The app would have refused to reconcile the **Niayesh tunnel**: it takes 399 s
   at 60 km/h and the sanity cap was a flat 300 s. Now based on whether the
