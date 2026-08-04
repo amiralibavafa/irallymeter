@@ -31,18 +31,22 @@ class DistanceReconciler {
   /// Metres still owed.
   double get remainingMeters => _remaining;
 
-  /// Queue a correction. Non-positive and negligible residuals are ignored.
-  ///
-  /// Adding while a payout is already in flight simply tops up the balance and
-  /// re-derives the rate from the new total, so overlapping tunnels can't
-  /// stack up unpaid corrections.
   /// True while a correction large enough to need the §16.1 slow window is
   /// being paid out. "Flag the event in the trip log" — this is that flag.
   bool _large = false;
   bool get isLarge => _large;
 
-  void add(double meters, DateTime now) {
-    if (!meters.isFinite || meters < AppConstants.minReconcileMeters) return;
+  /// Queue a correction. Non-positive and negligible residuals are ignored.
+  ///
+  /// Adding while a payout is already in flight simply tops up the balance and
+  /// re-derives the rate from the new total, so overlapping tunnels can't
+  /// stack up unpaid corrections.
+  ///
+  /// Returns the metres actually accepted, so the §15.3 section log can report
+  /// "the correction applied on recovery" without re-implementing this filter
+  /// and drifting out of step with it.
+  double add(double meters, DateTime now) {
+    if (!meters.isFinite || meters < AppConstants.minReconcileMeters) return 0;
 
     _remaining += meters;
     _lastAt ??= now;
@@ -57,6 +61,7 @@ class DistanceReconciler {
 
     final windowSec = window.inMilliseconds / 1000.0;
     _rate = math.min(_remaining / windowSec, AppConstants.maxReconcileRateMps);
+    return meters;
   }
 
   /// Metres to emit for the interval ending at [now]. Returns 0 when idle.

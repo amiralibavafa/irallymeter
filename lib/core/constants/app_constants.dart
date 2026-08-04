@@ -190,4 +190,12 @@ class AppConstants {
   /// is generous because the sensor estimate's error grows linearly, so a
   /// genuinely long tunnel is already the estimate's problem, not this cap's.
   static const Duration maxTunnelDuration = Duration(minutes: 5);
+
+  /// How many §15.3 estimated sections to keep in memory.
+  ///
+  /// The log lives for the life of the app and a flaky receiver can produce
+  /// hundreds of sections in a day, so it is bounded rather than unbounded.
+  /// Generous enough that a real rally day never truncates: 200 sections is
+  /// more dropouts than a working receiver has in a full stage.
+  static const int maxLoggedSections = 200;
 }

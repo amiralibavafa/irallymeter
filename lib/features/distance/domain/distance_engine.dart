@@ -4,6 +4,7 @@ import '../../gps/domain/gps_sample.dart';
 import 'distance_delta.dart';
 import 'distance_engine_state.dart';
 import 'distance_reconciler.dart';
+import 'estimated_section.dart';
 import 'gps_distance_source.dart';
 import 'longitudinal_axis_estimator.dart';
 import 'motion_sample.dart';
@@ -43,7 +44,7 @@ import 'sensor_distance_source.dart';
 /// Pure Dart: no plugins, and every method takes `now` explicitly rather than
 /// reading the clock, so the whole state machine is deterministically testable.
 class DistanceEngine {
-  DistanceEngine({required this.onDelta, required this.onState});
+  DistanceEngine({required this.onDelta, required this.onState, this.onSection});
 
   /// Emits every distance increment, whatever its source.
   final void Function(DistanceDelta) onDelta;
@@ -51,10 +52,19 @@ class DistanceEngine {
   /// Emits whenever the engine's observable state changes.
   final void Function(DistanceEngineState) onState;
 
+  /// Emits a completed §15.3 record each time Estimation Mode ends. Optional:
+  /// the log is always kept in [sections] regardless, so a caller that only
+  /// wants to read it afterwards doesn't have to subscribe.
+  final void Function(EstimatedSection)? onSection;
+
   final GpsDistanceSource _gps = GpsDistanceSource();
   final LongitudinalAxisEstimator _axis = LongitudinalAxisEstimator();
   late final SensorDistanceSource _sensor = SensorDistanceSource(_axis);
   final DistanceReconciler _reconciler = DistanceReconciler();
+  final EstimatedSectionLog _sections = EstimatedSectionLog();
+
+  /// SPEC-v2 §15.3 — every estimated section of this leg, oldest first.
+  EstimatedSectionLog get sections => _sections;
 
   DistanceEngineState _state = DistanceEngineState.initial;
   DistanceEngineState get state => _state;
@@ -66,6 +76,11 @@ class DistanceEngine {
 
   // --- Tunnel bookkeeping ---
   GpsSample? _tunnelEntryFix;
+
+  /// The entry-speed anchor the current estimate was seeded with. §15.3 calls
+  /// this "the speed that was held"; it is captured at entry rather than read
+  /// back at exit because [_gpsSpeedMps] has moved on by then.
+  double _tunnelEntrySpeedMps = 0;
 
   /// How many consecutive fixes have met BOTH §15.2 exit tests. Reset to zero
   /// by any fix that fails either, so recovery must be confirmed afresh.
@@ -193,6 +208,7 @@ class DistanceEngine {
 
   void _enterTunnel(DateTime now) {
     _tunnelEntryFix = _lastHealthySample;
+    _tunnelEntrySpeedMps = _gpsSpeedMps;
     _sensor.seed(_gpsSpeedMps, _pendingMotion?.timestamp ?? now);
     _recoveryStreak = 0;
     _recoveryLast = null;
@@ -267,7 +283,13 @@ class DistanceEngine {
     // estimate we already emitted for it.
     _gps.reanchor(exitFix);
 
-    _reconcileAgainst(exitFix, now);
+    // Read the section's facts BEFORE anything clears them: the publish below
+    // wipes tunnelSince and tunnelMeters.
+    final start = _state.tunnelSince;
+    final estimated = _state.tunnelMeters;
+
+    final correction = _reconcileAgainst(exitFix, now);
+    _logSection(start, now, estimated, correction);
 
     _sensor.reset();
     _tunnelEntryFix = null;
@@ -304,15 +326,19 @@ class DistanceEngine {
   /// app looks EXACTLY like a tunnel from here — fixes stop, then resume
   /// somewhere else — so without them, backgrounding the app for an hour of
   /// driving would reconcile the whole 50 km onto the trip counter.
-  void _reconcileAgainst(GpsSample exitFix, DateTime now) {
+  ///
+  /// Returns the metres actually queued, which is what §15.3 logs as "the
+  /// correction applied on recovery". Zero means the exit produced no usable
+  /// evidence and the estimate stands as measured.
+  double _reconcileAgainst(GpsSample exitFix, DateTime now) {
     final entry = _tunnelEntryFix;
     final since = _state.tunnelSince;
-    if (entry == null || since == null) return;
+    if (entry == null || since == null) return 0;
 
     // 1. Too long to be a tunnel → almost certainly a suspension. The chord is
     //    real driving we never observed, not estimation error.
     final duration = now.difference(since);
-    if (duration > AppConstants.maxTunnelDuration) return;
+    if (duration > AppConstants.maxTunnelDuration) return 0;
 
     final chord = GeoMath.distanceMeters(
       entry.latitude,
@@ -320,17 +346,46 @@ class DistanceEngine {
       exitFix.latitude,
       exitFix.longitude,
     );
-    if (!chord.isFinite) return;
+    if (!chord.isFinite) return 0;
 
     // 2. Physically impossible for the time spent dark → a bad fix, not a
     //    tunnel. Mirrors the same 90 m/s guard the GPS source applies.
     final seconds = duration.inMilliseconds / 1000.0;
-    if (seconds <= 0 || chord / seconds > 90.0) return;
+    if (seconds <= 0 || chord / seconds > 90.0) return 0;
 
     final residual = chord - _state.tunnelMeters;
-    if (residual <= 0) return; // Overshoot proves nothing — see doc above.
+    if (residual <= 0) return 0; // Overshoot proves nothing — see doc above.
 
-    _reconciler.add(residual, now);
+    return _reconciler.add(residual, now);
+  }
+
+  /// SPEC-v2 §15.3 — record the section that just ended.
+  ///
+  /// Recorded unconditionally, including sections that were rejected for
+  /// reconciliation. Those are the MOST interesting rows in a threshold-tuning
+  /// log: a section with a long duration and a zero correction is how a
+  /// suspended app or an overshooting estimate shows up, and dropping it would
+  /// hide exactly the case the spec wants the data for.
+  void _logSection(
+    DateTime? start,
+    DateTime end,
+    double estimatedMeters,
+    double correctionMeters,
+  ) {
+    // No start means the tunnel was never properly opened — nothing honest to
+    // record about when it began, so record nothing at all.
+    if (start == null) return;
+
+    final section = EstimatedSection(
+      start: start,
+      end: end,
+      estimatedMeters: estimatedMeters,
+      heldSpeedMps: _tunnelEntrySpeedMps,
+      correctionMeters: correctionMeters,
+      largeCorrection: correctionMeters > 0 && _reconciler.isLarge,
+    );
+    _sections.add(section);
+    onSection?.call(section);
   }
 
   // ===========================================================================
@@ -373,8 +428,14 @@ class DistanceEngine {
     _recoveryLast = null;
     _lastHealthySample = null;
     _tunnelEntryFix = null;
+    _tunnelEntrySpeedMps = 0;
     _pendingMotion = null;
     _gpsSpeedMps = 0;
+    // The §15.3 log belongs to the leg, like every other accumulated number
+    // here. Keeping it across a reset would leave its totals spanning legs
+    // while the trip counters restarted — two different meanings of "so far"
+    // on the same screen.
+    _sections.clear();
     _publish(DistanceEngineState.initial);
   }
 }
