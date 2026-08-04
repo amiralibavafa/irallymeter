@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../../core/constants/app_constants.dart';
@@ -26,24 +27,70 @@ class GeolocatorGpsService implements GpsRepository {
     return true;
   }
 
-  /// [background] adds the foreground-service config that keeps GPS streaming
-  /// when the app is backgrounded / screen off. When false we stream
-  /// foreground-only — used as a fallback if the foreground service can't start.
-  LocationSettings _settings({required bool background}) {
-    return AndroidSettings(
-      accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: AppConstants.gpsDistanceFilterMeters,
-      intervalDuration: AppConstants.gpsInterval,
-      forceLocationManager: false,
-      foregroundNotificationConfig: background
-          ? const ForegroundNotificationConfig(
-              notificationTitle: 'iRallyMeter tracking',
-              notificationText: 'GPS active — trip & stage timing running',
-              enableWakeLock: true,
-              setOngoing: true,
-            )
-          : null,
-    );
+  /// Per-platform receiver configuration (SPEC-v2 §18.2).
+  ///
+  /// [background] asks for continued updates when the app is not in front. It
+  /// is a request, not a guarantee, and the platform can refuse it: Android's
+  /// foreground service fails to start when POST_NOTIFICATIONS is denied, and
+  /// iOS raises if background updates are enabled without "always" permission.
+  /// [positionStream] therefore retries with it false rather than latching into
+  /// a permanent GPS-lost state — see the reconnect loop below.
+  ///
+  /// This returned `AndroidSettings` on EVERY platform until [3.6]. It compiled
+  /// and ran, because `AndroidSettings` is a `LocationSettings` and the iOS
+  /// plugin reads the fields it recognises off the base class — so the failure
+  /// was silent: iOS quietly got default `accuracy`, no `activityType`, no
+  /// background updates, and `pauseLocationUpdatesAutomatically` at its default.
+  /// The one that actually breaks a rally is that last one: iOS pauses location
+  /// updates when it decides the vehicle has stopped, which on a start line is
+  /// exactly wrong.
+  @visibleForTesting
+  LocationSettings buildSettings({required bool background}) {
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.iOS:
+      case TargetPlatform.macOS:
+        return AppleSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: AppConstants.gpsDistanceFilterMeters,
+          // "as a cue to determine when location updates may be automatically
+          // paused" — tell iOS this is a car so its heuristics match reality.
+          activityType: ActivityType.automotiveNavigation,
+          // §18.2: "otherwise iOS will pause updates when it thinks the vehicle
+          // has stopped." A rally car sits still at a start line and at a time
+          // control; the trip computer must not go to sleep with it.
+          pauseLocationUpdatesAutomatically: false,
+          allowBackgroundLocationUpdates: background,
+          // The blue status bar. Not decoration: it is what iOS shows in place
+          // of silently killing a background location session, and hiding it
+          // is a review risk on an app that tracks continuously.
+          showBackgroundLocationIndicator: background,
+        );
+      case TargetPlatform.android:
+      case TargetPlatform.fuchsia:
+      case TargetPlatform.linux:
+      case TargetPlatform.windows:
+        return AndroidSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: AppConstants.gpsDistanceFilterMeters,
+          intervalDuration: AppConstants.gpsInterval,
+          // SPEC-v2 §18.2: "Fused location applies its own smoothing and road
+          // snapping, which is helpful for navigation and wrong for
+          // measurement." This instrument's whole job is to report the ground
+          // truth it measured, not a plausible position on a known road — a
+          // snapped fix silently rewrites the distance we are being paid to
+          // measure. Going direct to the LocationManager also drops the Play
+          // Services dependency, which matters on the devices this ships to.
+          forceLocationManager: true,
+          foregroundNotificationConfig: background
+              ? const ForegroundNotificationConfig(
+                  notificationTitle: 'iRallyMeter tracking',
+                  notificationText: 'GPS active — trip & stage timing running',
+                  enableWakeLock: true,
+                  setOngoing: true,
+                )
+              : null,
+        );
+    }
   }
 
   @override
@@ -66,7 +113,7 @@ class GeolocatorGpsService implements GpsRepository {
     while (true) {
       try {
         yield* Geolocator.getPositionStream(
-          locationSettings: _settings(background: background),
+          locationSettings: buildSettings(background: background),
         ).map(_toSample);
         // Stream completed normally (rare) — fall through and reconnect.
       } catch (e) {
