@@ -48,6 +48,11 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Stage 3. Drives the REAL app on a device: real Hive, real go_router, real
+  # platform channels. Everything in test/ runs against a fake of at least one
+  # of those.
+  integration_test:
+    sdk: flutter
   flutter_lints: ^5.0.0
 
 flutter:

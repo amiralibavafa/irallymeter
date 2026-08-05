@@ -46,3 +46,6 @@ app.*.map.json
 
 # Local engineering notes / audits — not part of the shipped source
 /TECHNICAL_AUDIT.txt
+
+# Golden-test diff output. Regenerated on every failing run.
+test/failures/

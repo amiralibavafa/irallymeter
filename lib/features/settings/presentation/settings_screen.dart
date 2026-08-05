@@ -311,40 +311,42 @@ class _SessionTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      // See the note on the rows below: the splash needs a Material ancestor.
+      child: Material(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(8),
-      ),
-      child: ListTile(
-        title: Text(session.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-                color: InstrumentColors.of(context).primary,
-                fontWeight: FontWeight.w600)),
-        subtitle: Text(
-          '${session.points.length} pts · ${Formatters.distance(session.distanceMeters, metric: true)}',
-          style: TextStyle(color: InstrumentColors.of(context).secondary),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.ios_share, color: AppColors.info),
-              onPressed: () =>
-                  ref.read(gpxFileServiceProvider).exportAndShare(session),
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: AppColors.danger),
-              onPressed: () async {
-                await ref.read(routeLogRepositoryProvider).delete(session.id);
-                // Trigger list refresh.
-                ref.invalidate(savedSessionsProvider);
-              },
-            ),
-          ],
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          title: Text(session.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: InstrumentColors.of(context).primary,
+                  fontWeight: FontWeight.w600)),
+          subtitle: Text(
+            '${session.points.length} pts · ${Formatters.distance(session.distanceMeters, metric: true)}',
+            style: TextStyle(color: InstrumentColors.of(context).secondary),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.ios_share, color: AppColors.info),
+                onPressed: () =>
+                    ref.read(gpxFileServiceProvider).exportAndShare(session),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                onPressed: () async {
+                  await ref.read(routeLogRepositoryProvider).delete(session.id);
+                  // Trigger list refresh.
+                  ref.invalidate(savedSessionsProvider);
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -434,23 +436,31 @@ class _LocationPermissionRowState
       _ => ('TAP TO GRANT', AppColors.warn),
     };
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-          color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
-      child: ListTile(
-        title: const Text('Location access'),
-        subtitle: granted
-            ? null
-            : const Text('The trip counter cannot measure without it'),
-        trailing: Text(
-          value,
-          style: TextStyle(
-              color: color, fontWeight: FontWeight.w700, fontSize: 13),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      // Material, not a DecoratedBox. A ListTile paints its background AND its
+      // ink splash onto the nearest Material ANCESTOR, so a coloured box
+      // between the two swallows the splash: these rows looked dead to the
+      // touch. Flutter asserts on exactly this, and the assertion was failing
+      // three integration tests before anyone noticed the missing feedback.
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          title: const Text('Location access'),
+          subtitle: granted
+              ? null
+              : const Text('The trip counter cannot measure without it'),
+          trailing: Text(
+            value,
+            style: TextStyle(
+                color: color, fontWeight: FontWeight.w700, fontSize: 13),
+          ),
+          // Still tappable when granted: it is the honest way to confirm the
+          // state, and re-requesting an already-granted permission is a no-op.
+          onTap: _act,
         ),
-        // Still tappable when granted: it is the honest way to confirm the
-        // state, and re-requesting an already-granted permission is a no-op.
-        onTap: _act,
       ),
     );
   }
@@ -464,16 +474,24 @@ class _SwitchRow extends StatelessWidget {
   final ValueChanged<bool> onChanged;
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-          color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
-      child: SwitchListTile(
-        title: Text(label,
-            style: TextStyle(color: InstrumentColors.of(context).primary)),
-        value: value,
-        activeColor: AppColors.accent,
-        onChanged: onChanged,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      // Material, not a DecoratedBox. A ListTile paints its background AND its
+      // ink splash onto the nearest Material ANCESTOR, so a coloured box
+      // between the two swallows the splash: these rows looked dead to the
+      // touch. Flutter asserts on exactly this, and the assertion was failing
+      // three integration tests before anyone noticed the missing feedback.
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        clipBehavior: Clip.antiAlias,
+        child: SwitchListTile(
+          title: Text(label,
+              style: TextStyle(color: InstrumentColors.of(context).primary)),
+          value: value,
+          activeColor: AppColors.accent,
+          onChanged: onChanged,
+        ),
       ),
     );
   }
@@ -487,17 +505,25 @@ class _ChoiceRow extends StatelessWidget {
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-          color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
-      child: ListTile(
-        title: Text(label,
-            style: TextStyle(color: InstrumentColors.of(context).primary)),
-        trailing: Text(value,
-            style: const TextStyle(
-                color: AppColors.accent, fontWeight: FontWeight.w700)),
-        onTap: onTap,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      // Material, not a DecoratedBox. A ListTile paints its background AND its
+      // ink splash onto the nearest Material ANCESTOR, so a coloured box
+      // between the two swallows the splash: these rows looked dead to the
+      // touch. Flutter asserts on exactly this, and the assertion was failing
+      // three integration tests before anyone noticed the missing feedback.
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          title: Text(label,
+              style: TextStyle(color: InstrumentColors.of(context).primary)),
+          trailing: Text(value,
+              style: const TextStyle(
+                  color: AppColors.accent, fontWeight: FontWeight.w700)),
+          onTap: onTap,
+        ),
       ),
     );
   }
@@ -509,14 +535,22 @@ class _DangerRow extends StatelessWidget {
   final VoidCallback onTap;
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-          color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
-      child: ListTile(
-        title: Text(label, style: const TextStyle(color: AppColors.danger)),
-        trailing: const Icon(Icons.restart_alt, color: AppColors.danger),
-        onTap: onTap,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      // Material, not a DecoratedBox. A ListTile paints its background AND its
+      // ink splash onto the nearest Material ANCESTOR, so a coloured box
+      // between the two swallows the splash: these rows looked dead to the
+      // touch. Flutter asserts on exactly this, and the assertion was failing
+      // three integration tests before anyone noticed the missing feedback.
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          title: Text(label, style: const TextStyle(color: AppColors.danger)),
+          trailing: const Icon(Icons.restart_alt, color: AppColors.danger),
+          onTap: onTap,
+        ),
       ),
     );
   }
