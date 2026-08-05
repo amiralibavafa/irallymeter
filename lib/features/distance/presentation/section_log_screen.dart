@@ -35,15 +35,15 @@ class SectionLogScreen extends ConsumerWidget {
         // Short title on purpose: "ESTIMATED SECTIONS" beside the clock
         // overflowed the app bar at 1080x2400, which is the same mistake the
         // dashboard top bar already makes. Not repeating it here.
-        title: const Row(
+        title: Row(
           children: [
-            AppClock(),
-            SizedBox(width: 12),
+            const AppClock(),
+            const SizedBox(width: 12),
             Flexible(
               child: Text('SECTIONS',
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      color: AppColors.textPrimary,
+                      color: InstrumentColors.of(context).primary,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.2)),
             ),
@@ -310,8 +310,11 @@ class _Field extends StatelessWidget {
                     letterSpacing: 1.1)),
             const SizedBox(height: 2),
             Text(value,
-                style: const TextStyle(
-                    color: AppColors.textPrimary,
+                style: TextStyle(
+                    // DAY token. This is every figure on the GNSS HEALTH
+                    // panel, which is the screen ROAD-TEST sends a tester to,
+                    // including on a night run.
+                    color: InstrumentColors.of(context).primary,
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                     // Every figure on the GNSS HEALTH panel comes through

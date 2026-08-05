@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_clock.dart';
 // The compass instrument lives with the dashboard widgets; it is reused here so
 // the heading readout now appears on the map instead of the home cluster.
@@ -260,6 +261,11 @@ class _RecordButton extends ConsumerWidget {
     final recorder = ref.read(routeRecorderProvider.notifier);
     return _MapFab(
       icon: recording ? Icons.stop : Icons.fiber_manual_record,
+      // The DAY token ON PURPOSE, and the only one left outside the theme.
+      // While recording this is a white glyph on a red disc, which is the
+      // highest-contrast pairing available; the night token is amber, and
+      // amber on red is barely legible. This is a state indicator rather than
+      // a readout, so contrast wins over dimming.
       color: recording ? AppColors.textPrimary : AppColors.danger,
       background: recording ? AppColors.danger : null,
       onTap: () async {
@@ -297,7 +303,8 @@ class _MapFab extends StatelessWidget {
         child: SizedBox(
           width: 56,
           height: 56,
-          child: Icon(icon, color: color ?? AppColors.textPrimary, size: 26),
+          child: Icon(icon,
+              color: color ?? InstrumentColors.of(context).primary, size: 26),
         ),
       ),
     );
@@ -369,11 +376,13 @@ class _CoordField extends StatelessWidget {
           value,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
+          style: TextStyle(
+            // The DAY token. On a night stage the LAT/LON/ALT bar sat at full
+            // white on a windscreen, in the driver's eyeline.
+            color: InstrumentColors.of(context).primary,
             fontSize: 15,
             fontWeight: FontWeight.w700,
-            fontFeatures: [FontFeature.tabularFigures()],
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
       ],

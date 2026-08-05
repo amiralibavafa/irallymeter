@@ -374,7 +374,10 @@ class _Splits extends StatelessWidget {
               Text('SPLIT $n', style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700)),
               Text('+${Formatters.stopwatch(delta)}', style: const TextStyle(color: AppColors.info)),
               Text(Formatters.stopwatch(splits[i]),
-                  style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700)),
+                  style: TextStyle(
+                      // DAY token. Split times are read on a night stage.
+                      color: InstrumentColors.of(context).primary,
+                      fontWeight: FontWeight.w700)),
             ],
           ),
         );

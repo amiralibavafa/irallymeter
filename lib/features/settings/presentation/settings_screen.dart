@@ -141,8 +141,8 @@ class _CalibrationCard extends ConsumerWidget {
               // Four decimals at 34 px, nudged a digit at a time: without
               // tabular figures the whole number reflows on every tap.
               Text(factor.toStringAsFixed(4),
-                  style: const TextStyle(
-                      color: AppColors.textPrimary,
+                  style: TextStyle(
+                      color: InstrumentColors.of(context).primary,
                       fontSize: 34,
                       fontWeight: FontWeight.w700,
                       fontFeatures: AppTheme.tabularFigures)),
@@ -190,8 +190,8 @@ class _CalibrationCard extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text('Calibrate',
-            style: TextStyle(color: AppColors.textPrimary)),
+        title: Text('Calibrate',
+            style: TextStyle(color: InstrumentColors.of(context).primary)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -253,7 +253,7 @@ class _Step extends StatelessWidget {
         child: OutlinedButton(
           onPressed: onTap,
           style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.textPrimary,
+            foregroundColor: InstrumentColors.of(context).primary,
             side: const BorderSide(color: AppColors.divider),
             padding: const EdgeInsets.symmetric(vertical: 14),
           ),
@@ -321,8 +321,9 @@ class _SessionTile extends ConsumerWidget {
         title: Text(session.name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-                color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
+            style: TextStyle(
+                color: InstrumentColors.of(context).primary,
+                fontWeight: FontWeight.w600)),
         subtitle: Text(
           '${session.points.length} pts · ${Formatters.distance(session.distanceMeters, metric: true)}',
           style: const TextStyle(color: AppColors.textSecondary),
@@ -468,8 +469,8 @@ class _SwitchRow extends StatelessWidget {
       decoration: BoxDecoration(
           color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
       child: SwitchListTile(
-        title:
-            Text(label, style: const TextStyle(color: AppColors.textPrimary)),
+        title: Text(label,
+            style: TextStyle(color: InstrumentColors.of(context).primary)),
         value: value,
         activeColor: AppColors.accent,
         onChanged: onChanged,
@@ -491,8 +492,8 @@ class _ChoiceRow extends StatelessWidget {
       decoration: BoxDecoration(
           color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
       child: ListTile(
-        title:
-            Text(label, style: const TextStyle(color: AppColors.textPrimary)),
+        title: Text(label,
+            style: TextStyle(color: InstrumentColors.of(context).primary)),
         trailing: Text(value,
             style: const TextStyle(
                 color: AppColors.accent, fontWeight: FontWeight.w700)),

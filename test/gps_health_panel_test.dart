@@ -32,6 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:irallymeter/core/di/providers.dart';
 import 'package:irallymeter/core/storage/storage_service.dart';
+import 'package:irallymeter/core/theme/app_colors.dart';
 import 'package:irallymeter/core/theme/app_theme.dart';
 import 'package:irallymeter/features/compass/presentation/providers/compass_providers.dart';
 import 'package:irallymeter/features/distance/presentation/providers/distance_providers.dart';
@@ -181,6 +182,38 @@ void main() {
       await _teardown(tester, container, gps, ticks);
     });
   });
+
+  group('C18 · night mode reaches the screens outside the cluster', () {
+    testWidgets('05 · panel figures use the night token', (tester) async {
+      // I previously reported night mode as verified. That was INCOMPLETE
+      // rather than wrong: I checked the cluster, and the cluster is correct.
+      // `AppColors.textPrimary` is the DAY token, and twelve widgets read it
+      // directly, bypassing the theme. This panel was one of them, so on a
+      // night stage every GNSS HEALTH figure stayed at full white — on a
+      // windscreen, in the driver's eyeline, on the screen ROAD-TEST sends a
+      // tester to.
+      final gps = StreamController<GpsSample>();
+      final ticks = StreamController<int>();
+      final container = _container(storage, gps.stream, ticks.stream);
+
+      await _pump(tester, container, mode: DisplayMode.night);
+
+      for (var i = 1; i <= 3; i++) {
+        gps.add(_fix(tMs: i * 1000));
+        await _settle(tester);
+      }
+      ticks.add(1);
+      await _settle(tester);
+
+      final fixes = tester.widget<Text>(find.text('3'));
+      expect(fixes.style?.color, equals(AppColors.nightTextPrimary),
+          reason: 'the figure was hard-wired to the day token, so night mode '
+              'dimmed the cluster and left this screen glaring');
+      expect(fixes.style?.color, isNot(equals(AppColors.textPrimary)));
+
+      await _teardown(tester, container, gps, ticks);
+    });
+  });
 }
 
 ProviderContainer _container(
@@ -209,7 +242,8 @@ ProviderContainer _container(
   return container;
 }
 
-Future<void> _pump(WidgetTester tester, ProviderContainer container) async {
+Future<void> _pump(WidgetTester tester, ProviderContainer container,
+    {DisplayMode mode = DisplayMode.day}) async {
   tester.view.devicePixelRatio = 1.0;
   tester.view.physicalSize = const Size(465.5, 1038.5);
   addTearDown(tester.view.reset);
@@ -218,7 +252,7 @@ Future<void> _pump(WidgetTester tester, ProviderContainer container) async {
     UncontrolledProviderScope(
       container: container,
       child: MaterialApp(
-        theme: AppTheme.build(DisplayMode.day),
+        theme: AppTheme.build(mode),
         home: const SectionLogScreen(),
       ),
     ),
