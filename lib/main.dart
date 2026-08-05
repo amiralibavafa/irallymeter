@@ -35,11 +35,32 @@ Future<void> main() async {
 
   // Keep the cluster awake while driving and bias to landscape (co-driver).
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-    DeviceOrientation.portraitUp,
-  ]);
+  // NO ORIENTATION PREFERENCE — Saam's call, 2026-08-05: portrait by default,
+  // and still able to rotate.
+  //
+  // MEASURED, because the obvious version of this change was wrong. It used to
+  // be `[landscapeLeft, landscapeRight, portraitUp]` from Amirali's first
+  // commit. Flutter does not treat that list as a priority order on Android: it
+  // resolves it to a single `ActivityInfo` constant, and both that list and the
+  // portrait-first version of it resolve to SCREEN_ORIENTATION_NOSENSOR — which
+  // PINS the app to one orientation and ignores the sensor entirely.
+  //
+  // Verified on device via `dumpsys window`: with the old list the app was
+  // effectively LANDSCAPE-LOCKED, which is why it never came up portrait even
+  // on a phone held upright. Simply reversing the order moved the lock to
+  // portrait and made landscape unreachable — with auto-rotate ON and the
+  // device rotated, `mCurrentAppOrientation` stayed NOSENSOR and the window
+  // stayed `port`. That would have broken the mounted case to fix the handheld
+  // one.
+  //
+  // An empty list means "no preference", which resolves to
+  // SCREEN_ORIENTATION_UNSPECIFIED and hands the decision back to Android: a
+  // phone held upright shows portrait, a phone on a windscreen mount rotates to
+  // the wide cluster, and the user's own auto-rotate setting is respected
+  // instead of being overridden. Both layouts already exist and are tested
+  // (P2 built the portrait one; `dashboard_layout_test` and the goldens cover
+  // both), so nothing here is a new surface.
+  await SystemChrome.setPreferredOrientations([]);
 
   // Initialise persistence before the app reads any settings/trip values.
   final storage = await StorageService.init();
