@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/constants/app_constants.dart';
+import '../../../../core/utils/angle_smoother.dart';
 import '../../../../core/utils/geo_math.dart';
 import '../../data/geolocator_gps_service.dart';
 import '../../domain/gps_repository.dart';
@@ -67,7 +68,15 @@ final gpsStreamErrorProvider = Provider<String?>((ref) =>
 /// avoid rebuilding the whole dashboard on every tick.
 final gpsStateProvider = StreamProvider<GpsState>((ref) {
   final speedFilter = SpeedFilter();
-  double smoothedHeading = double.nan;
+  // TIME-based, not per-sample. `[3.7]` fixed this shape of bug on the speed
+  // display and `[3.11]` fixed it on the magnetic compass; the GPS course
+  // branch was the last one still weighting by sample, and since C1 it is the
+  // branch displayed nearly all the time. geolocator is asked for 5 Hz and
+  // delivers that only under an open sky, so a per-sample weight made the
+  // needle settle in a second on a good fix and four and a half on a poor one,
+  // on the same phone on the same road — read by a driver as the compass going
+  // laggy exactly when conditions are already bad.
+  final headingSmoother = AngleSmoother(AppConstants.headingSmoothingTau);
   // Which source the heading is currently coming from. Latched deliberately,
   // with a hysteresis band — see the switch below.
   bool usingGpsCourse = false;
@@ -172,22 +181,20 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
       // A moving fix with no course reported holds the last good one rather
       // than dropping the needle; only leaving the band releases.
       if (s.headingDeg.isFinite) {
-        smoothedHeading = smoothedHeading.isNaN
-            ? s.headingDeg
-            : GeoMath.smoothAngle(
-                smoothedHeading, s.headingDeg, AppConstants.headingSmoothing);
+        headingSmoother.add(s.headingDeg, s.timestamp);
       }
     } else {
-      // NaN is the signal `capHeadingProvider` reads to switch to the
-      // magnetometer, and it also means the next acquisition adopts the new
+      // `reset()` leaves the value NaN, which is the signal
+      // `capHeadingProvider` reads to switch to the magnetometer. It also
+      // clears the smoother's clock, so the next acquisition adopts the new
       // course outright instead of smoothing up from a pre-stop bearing.
-      smoothedHeading = double.nan;
+      headingSmoother.reset();
     }
 
     controller.add(GpsState(
       streamError: lastError,
       smoothedSpeedMps: speed,
-      headingDeg: smoothedHeading,
+      headingDeg: headingSmoother.value,
       accuracyM: s.accuracyM,
       latitude: s.latitude,
       longitude: s.longitude,

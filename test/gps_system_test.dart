@@ -18,6 +18,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:irallymeter/core/utils/geo_math.dart';
 import 'package:irallymeter/features/gps/domain/gps_repository.dart';
 import 'package:irallymeter/features/gps/domain/gps_sample.dart';
 import 'package:irallymeter/features/gps/domain/gps_state.dart';
@@ -176,9 +177,21 @@ void main() {
         _fix(lat: 46.0, lon: 8.0, speed: 20, head: 0, tMs: 1000), // seed 0°
         _fix(lat: 46.0, lon: 8.0, speed: 20, head: 90, tMs: 2000), // turn to 90°
       ]);
-      // alpha 0.2 → 0 + 0.2*90 = 18°, i.e. it lags, not snaps.
-      expect(r.last.headingDeg, closeTo(18, 0.5));
-      expect(r.last.headingDeg, lessThan(90));
+      // NUMBER CHANGED BY C10, ASSERTION NOT WEAKENED. This was `closeTo(18)`,
+      // which is the arithmetic of the fixed per-sample weight alpha = 0.2 that
+      // C10 replaced: 0 + 0.2*90 = 18. The filter is now TIME-based with a
+      // 400 ms constant, so one second of a 0 -> 90 turn is
+      // 90 * (1 - e^-2.5) = 82.6. Still derived by hand from the constant, so
+      // this stays an independent check rather than a restatement of the code.
+      //
+      // The lag is small here because the fixes are a full second apart, and
+      // that is the point of the change: after a second the old reading carries
+      // little information. At the 5 Hz the app actually asks for, the same
+      // turn is followed much more gradually — `gps_heading_smoothing_test` 01
+      // pins that the two rates now agree.
+      expect(r.last.headingDeg, closeTo(82.6, 0.5));
+      expect(r.last.headingDeg, lessThan(90),
+          reason: 'it must still LAG rather than snap');
     });
 
     test('20 · heading EMA wraps correctly across the 0/360 seam', () async {
@@ -186,9 +199,24 @@ void main() {
         _fix(lat: 46.0, lon: 8.0, speed: 20, head: 350, tMs: 1000),
         _fix(lat: 46.0, lon: 8.0, speed: 20, head: 10, tMs: 2000), // +20° across N
       ]);
-      // Correct wrap → ~354°, NOT a naive average collapsing toward ~282°.
-      expect(r.last.headingDeg, closeTo(354, 0.5));
-      expect(r.last.headingDeg, greaterThan(340));
+      // NUMBER CHANGED BY C10, INTENT STRENGTHENED. This was `closeTo(354)`
+      // plus `greaterThan(340)`, both of which encode alpha = 0.2 rather than
+      // the property being tested. With the 400 ms time constant a one-second
+      // gap covers 91.8% of the 20 degree turn, so the answer wraps past 360
+      // and reads 8.36 — which `greaterThan(340)` would reject even though the
+      // wrap is perfect.
+      //
+      // What the test is actually for is that the EMA takes the SHORT way round
+      // the dial instead of averaging raw angles and collapsing toward 180. So
+      // that is now asserted directly, and unlike the old pair it holds at any
+      // fix rate.
+      final travelled = GeoMath.angleDelta(350, r.last.headingDeg);
+      expect(travelled, greaterThanOrEqualTo(0.0));
+      expect(travelled, lessThanOrEqualTo(20.0),
+          reason: 'the heading left the short arc between 350 and 010, which '
+              'is what averaging raw angles across the seam does — it would '
+              'land near 180');
+      expect(r.last.headingDeg, closeTo(8.36, 0.5));
     });
   });
 }

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:irallymeter/core/constants/app_constants.dart';
+import 'package:irallymeter/core/utils/angle_smoother.dart';
 import 'package:irallymeter/features/compass/domain/heading_calibration.dart';
 
 /// The compass, reported from the road as "laggy, has a delay and isn't

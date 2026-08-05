@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:sensors_plus/sensors_plus.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/utils/angle_smoother.dart';
 import '../domain/heading_calibration.dart';
 
 /// Tilt-compensated magnetic compass built from the accelerometer +

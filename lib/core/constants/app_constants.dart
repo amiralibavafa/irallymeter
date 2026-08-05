@@ -106,12 +106,11 @@ class AppConstants {
   static const double maxCalibration = 1.20;
 
   // ---- Compass ----
-  /// EMA smoothing for heading to stop needle chatter.
-  ///
-  /// Still used for the GPS-course branch, which is sample-driven at the fix
-  /// rate. The MAGNETIC branch now uses [headingSmoothingTau] instead — see
-  /// below for why a per-sample weight was the wrong shape there.
-  static const double headingSmoothing = 0.2;
+  // The per-sample `headingSmoothing = 0.2` that used to live here is GONE.
+  // It was the last consumer of a fixed per-sample weight, on the GPS-course
+  // branch, and C10 moved that branch onto [headingSmoothingTau] like the
+  // magnetic one. Removed rather than left unused so nobody reaches for it
+  // again: a weight per SAMPLE makes the lag a property of the fix rate.
 
   /// Speed at which GNSS course-over-ground becomes trustworthy (≈5 km/h).
   ///
@@ -140,6 +139,10 @@ class AppConstants {
   ///
   /// 400 ms is deliberately steadier than the speed display's 250 ms: a needle
   /// that chatters is unreadable, and heading changes slower than speed does.
+  ///
+  /// Since C10 this governs BOTH heading branches, magnetic and GPS course, so
+  /// the needle behaves the same whichever one is feeding it and whatever rate
+  /// the receiver or the sensor happens to be running at.
   static const Duration headingSmoothingTau = Duration(milliseconds: 400);
 
   /// Time constant for the gravity estimate used in compass tilt compensation.
