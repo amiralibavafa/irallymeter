@@ -130,11 +130,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
             ],
           ),
+          // Sits ABOVE the coordinate bar and INSIDE the same insets it uses.
+          //
+          // Every other edge of this map is already occupied: REC badge top
+          // left, compass top right, FAB column bottom right. A banner at the
+          // top ran under the compass; one spanning the full width at the
+          // bottom ran under the FABs. `right: 84` is the coordinate bar's own
+          // clearance for that FAB column, so matching it is the fix that
+          // stays correct if the buttons move.
           if (_tilesFailed)
             Positioned(
-              top: 12,
-              left: 0,
-              right: 0,
+              left: 12,
+              right: 84,
+              bottom: 64,
               child: Center(
                 child: Container(
                   padding:
@@ -149,13 +157,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     children: [
                       Icon(Icons.cloud_off, color: AppColors.warn, size: 18),
                       SizedBox(width: 10),
-                      Text(
-                        'MAP TILES UNAVAILABLE — POSITION STILL TRACKING',
-                        style: TextStyle(
-                          color: AppColors.warn,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
+                      // Flexible so a narrow phone wraps the sentence instead
+                      // of clipping it. A warning that loses its second half
+                      // is worse than no warning, because the half that
+                      // survives here is the alarming one.
+                      Flexible(
+                        child: Text(
+                          'MAP TILES UNAVAILABLE  ·  POSITION STILL TRACKING',
+                          style: TextStyle(
+                            color: AppColors.warn,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                          ),
                         ),
                       ),
                     ],
