@@ -142,6 +142,15 @@ void main() {
       final sub = container.listen(gpsStateProvider, (_, __) {},
           fireImmediately: true);
       addTearDown(sub.close);
+      // C9 exposed a hole in this setup rather than in the assertion. Nothing
+      // here watched capHeadingProvider, so magneticHeadingProvider was never
+      // created and its 42 never arrived — the container had no magnetic
+      // reading at all, and only the old code's missing "no source" branch made
+      // that look like MAG. HeadingDisplay watches this from app start, so the
+      // test now does too. The assertion below is UNCHANGED.
+      final capSub = container.listen(capHeadingProvider, (_, __) {},
+          fireImmediately: true);
+      addTearDown(capSub.close);
       for (var i = 0; i < 8; i++) {
         await Future<void>.delayed(Duration.zero);
       }

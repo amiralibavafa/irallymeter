@@ -124,6 +124,19 @@ final capHeadingProvider = Provider<double>((ref) {
 final headingSourceProvider = Provider<String>((ref) {
   if (ref.watch(headingProvider).isFinite) return 'GPS';
 
+  // NO SOURCE is its own answer, and it used to be missing entirely: the only
+  // returns were GPS, MAG and TRUE, so a phone with no magnetometer — or one
+  // whose sensor has not delivered its first event yet — showed `CAP • MAG`
+  // beside a value of `---`. The tile named a sensor that was supplying
+  // nothing.
+  //
+  // That is the same false assertion the TRUE label was rewritten to remove,
+  // one step further down. It is not enough to stop claiming the reading is
+  // true-north referenced if the app still claims to know where it came from.
+  // Not every Android handset has a magnetometer, and the ones that omit it are
+  // the cheap models most likely to end up as a crew's spare.
+  if (ref.watch(magneticHeadingProvider).valueOrNull == null) return '--';
+
   final wantsTrue = ref.watch(settingsProvider.select((s) => s.useTrueNorth));
   if (!wantsTrue) return 'MAG';
   return ref.watch(headingCalibrationProvider).isLearned ? 'TRUE' : 'MAG';
