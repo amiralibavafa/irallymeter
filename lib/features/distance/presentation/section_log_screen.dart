@@ -197,15 +197,16 @@ class _Empty extends StatelessWidget {
   const _Empty();
 
   @override
-  Widget build(BuildContext context) => const Center(
+  Widget build(BuildContext context) => Center(
         child: Padding(
-          padding: EdgeInsets.all(32),
+          padding: const EdgeInsets.all(32),
           child: Text(
             'No estimated sections yet.\n\n'
             'One is recorded automatically every time GNSS is lost and '
             'recovered — no button to press.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+            style: TextStyle(
+                color: InstrumentColors.of(context).secondary, height: 1.5),
           ),
         ),
       );
@@ -242,7 +243,8 @@ class _SectionCard extends StatelessWidget {
               const SizedBox(width: 10),
               Text(
                 '${_hhmmss(section.start)} → ${_hhmmss(section.end)}',
-                style: const TextStyle(color: AppColors.textSecondary),
+                style: TextStyle(
+                    color: InstrumentColors.of(context).secondary),
               ),
               const Spacer(),
               if (flagged)
@@ -304,8 +306,8 @@ class _Field extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label,
-                style: const TextStyle(
-                    color: AppColors.textSecondary,
+                style: TextStyle(
+                    color: InstrumentColors.of(context).secondary,
                     fontSize: 10,
                     letterSpacing: 1.1)),
             const SizedBox(height: 2),
@@ -322,8 +324,9 @@ class _Field extends StatelessWidget {
                     fontFeatures: AppTheme.tabularFigures)),
             if (hint != null)
               Text(hint!,
-                  style: const TextStyle(
-                      color: AppColors.textSecondary, fontSize: 10)),
+                  style: TextStyle(
+                      color: InstrumentColors.of(context).secondary,
+                      fontSize: 10)),
           ],
         ),
       );

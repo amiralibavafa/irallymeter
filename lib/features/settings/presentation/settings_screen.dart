@@ -326,7 +326,7 @@ class _SessionTile extends ConsumerWidget {
                 fontWeight: FontWeight.w600)),
         subtitle: Text(
           '${session.points.length} pts · ${Formatters.distance(session.distanceMeters, metric: true)}',
-          style: const TextStyle(color: AppColors.textSecondary),
+          style: TextStyle(color: InstrumentColors.of(context).secondary),
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,

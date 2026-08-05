@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../trip/domain/trip_state.dart';
 import '../../../trip/presentation/providers/trip_providers.dart';
 
@@ -96,8 +97,10 @@ class _ResetButton extends StatelessWidget {
               alignment: Alignment.center,
               child: Text(
                 label,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
+                style: TextStyle(
+                  // DAY token. RST A/B sits ON THE CLUSTER, which is the
+                  // screen night mode exists for.
+                  color: InstrumentColors.of(context).secondary,
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
                 ),

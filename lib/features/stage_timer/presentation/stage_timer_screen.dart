@@ -105,7 +105,9 @@ class _ModeToggle extends StatelessWidget {
             ),
             child: Text(label,
                 style: TextStyle(
-                  color: sel ? Colors.black : AppColors.textSecondary,
+                  color: sel
+                      ? Colors.black
+                      : InstrumentColors.of(context).secondary,
                   fontWeight: FontWeight.w700,
                 )),
           ),
@@ -260,7 +262,9 @@ class _CountdownAdjust extends StatelessWidget {
                     ? 'TARGET ${Formatters.stopwatch(target)} · TAP TO EDIT'
                     : 'TARGET ${Formatters.stopwatch(target)} · LOCKED WHILE RUNNING',
                 style: TextStyle(
-                  color: enabled ? AppColors.accent : AppColors.textSecondary,
+                  color: enabled
+                      ? AppColors.accent
+                      : InstrumentColors.of(context).secondary,
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.2,
@@ -371,7 +375,10 @@ class _Splits extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('SPLIT $n', style: const TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700)),
+              Text('SPLIT $n',
+                  style: TextStyle(
+                      color: InstrumentColors.of(context).secondary,
+                      fontWeight: FontWeight.w700)),
               Text('+${Formatters.stopwatch(delta)}', style: const TextStyle(color: AppColors.info)),
               Text(Formatters.stopwatch(splits[i]),
                   style: TextStyle(

@@ -224,7 +224,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   children: [
                     _MapFab(
                       icon: _follow ? Icons.gps_fixed : Icons.gps_not_fixed,
-                      color: _follow ? AppColors.ok : AppColors.textSecondary,
+                      color: _follow
+                          ? AppColors.ok
+                          : InstrumentColors.of(context).secondary,
                       onTap: () => setState(() => _follow = true),
                     ),
                     const SizedBox(height: 10),
@@ -364,8 +366,8 @@ class _CoordField extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: AppColors.textSecondary,
+          style: TextStyle(
+            color: InstrumentColors.of(context).secondary,
             fontSize: 11,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.5,
