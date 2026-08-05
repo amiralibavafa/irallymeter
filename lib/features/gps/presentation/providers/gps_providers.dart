@@ -105,8 +105,34 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
     // back to position-delta speed when the platform reports none: the Android
     // emulator and some real GPS chips never supply a speed value, so without
     // this the readout would sit at 0 even while moving.
-    var rawSpeed = s.speedMps;
-    if (rawSpeed <= 0 && prev != null) {
+    //
+    // The test is `hasValidDopplerSpeed`, IDENTICAL to the one
+    // `gps_distance_source.dart:157` applies. It used to be `rawSpeed <= 0`
+    // here, and that disagreed with the distance engine in two ways:
+    //
+    //   * a reading whose own accuracy is worse than §7.1's 2 m/s limit was
+    //     rejected for distance and rendered on the speedometer anyway. For a
+    //     measuring instrument, the digit and the odometer coming from
+    //     different inputs is a correctness bug.
+    //   * `NaN <= 0` is FALSE, so a non-finite reading skipped the fallback and
+    //     went into SpeedFilter, which holds its previous value on NaN. The
+    //     needle froze at the last good number and nothing said so.
+    //
+    // The extra `> 0` matches the distance source too: a reported zero is
+    // *valid* but must still let the positions speak, or a receiver that never
+    // reports speed gates the readout to zero forever.
+    // Two different questions, and collapsing them is a bug in its own right:
+    //   trustworthy  — may this reading be shown at all? (§7.1)
+    //   dopplerUsable — should it be shown IN PREFERENCE to the positions?
+    // A reported 0 is trustworthy but not preferred: a stationary car really is
+    // doing 0, while a receiver that always says 0 must let the positions
+    // speak.
+    final trustworthy = s.hasValidDopplerSpeed;
+    final dopplerUsable = trustworthy && s.speedMps > 0;
+    // NaN, not 0, when nothing trustworthy is available: SpeedFilter holds on
+    // NaN, whereas a 0 would assert a standstill the app has not measured.
+    var rawSpeed = trustworthy ? s.speedMps : double.nan;
+    if (!dopplerUsable && prev != null) {
       final dtMs = s.timestamp.difference(prev!.timestamp).inMilliseconds;
       if (dtMs > 0) {
         final meters = GeoMath.distanceMeters(
