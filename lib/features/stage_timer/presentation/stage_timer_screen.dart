@@ -133,14 +133,71 @@ class _CountdownAdjust extends StatelessWidget {
   static const _min = Duration(seconds: 10);
   static const _max = Duration(hours: 1);
 
+  /// Type an exact target as `m:ss` or `mm:ss`. Parsed and clamped by the same
+  /// rules as the steppers, so there is exactly one definition of a legal
+  /// target rather than one per entry method.
+  Future<void> _promptForTarget(BuildContext context) async {
+    final controller = TextEditingController(
+      text: '${target.inMinutes}:'
+          '${(target.inSeconds % 60).toString().padLeft(2, '0')}',
+    );
+    final picked = await showDialog<Duration>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('COUNTDOWN TARGET'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.datetime,
+          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+          decoration: const InputDecoration(
+            hintText: 'm:ss',
+            helperText: 'minutes:seconds, e.g. 4:30',
+          ),
+          onSubmitted: (v) => Navigator.of(ctx).pop(_parse(v)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(ctx).pop(_parse(controller.text)),
+            child: const Text('SET'),
+          ),
+        ],
+      ),
+    );
+    if (picked != null) onChanged(_clamp(picked));
+  }
+
+  /// `m:ss`, or a bare number read as SECONDS. Returns null on anything else so
+  /// a typo leaves the existing target alone rather than silently zeroing it.
+  static Duration? _parse(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return null;
+    final parts = t.split(':');
+    if (parts.length == 1) {
+      final s = int.tryParse(parts[0]);
+      return s == null ? null : Duration(seconds: s);
+    }
+    if (parts.length != 2) return null;
+    final m = int.tryParse(parts[0]);
+    final sec = int.tryParse(parts[1]);
+    if (m == null || sec == null || m < 0 || sec < 0 || sec > 59) return null;
+    return Duration(minutes: m, seconds: sec);
+  }
+
+  static Duration _clamp(Duration d) =>
+      d < _min ? _min : (d > _max ? _max : d);
+
   @override
   Widget build(BuildContext context) {
     // Clamped so the target can never reach zero or negative, which would make
     // the countdown finish the instant it started.
-    void step(Duration by) {
-      final next = target + by;
-      onChanged(next < _min ? _min : (next > _max ? _max : next));
-    }
+    void step(Duration by) => onChanged(_clamp(target + by));
 
     Widget chip(String label, Duration by) {
       final atLimit = by.isNegative ? target <= _min : target >= _max;
@@ -175,15 +232,26 @@ class _CountdownAdjust extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         children: [
-          Text(
-            enabled
-                ? 'TARGET ${Formatters.stopwatch(target)}'
-                : 'TARGET ${Formatters.stopwatch(target)} · LOCKED WHILE RUNNING',
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
+          // Tap to TYPE an exact time. The steppers cover "a bit more, a bit
+          // less" with gloves on; typing covers "the road book says 4:30" and
+          // is the only sane way to reach a far-off value, which by steps is
+          // dozens of taps.
+          GestureDetector(
+            onTap: enabled ? () => _promptForTarget(context) : null,
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                enabled
+                    ? 'TARGET ${Formatters.stopwatch(target)} · TAP TO EDIT'
+                    : 'TARGET ${Formatters.stopwatch(target)} · LOCKED WHILE RUNNING',
+                style: TextStyle(
+                  color: enabled ? AppColors.accent : AppColors.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 8),
