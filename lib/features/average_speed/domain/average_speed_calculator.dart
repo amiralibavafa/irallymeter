@@ -29,6 +29,7 @@ import '../../gps/domain/gps_sample.dart';
 class AverageSpeedCalculator {
   double _distanceMeters = 0;
   Duration _elapsed = Duration.zero;
+  Duration _movingElapsed = Duration.zero;
 
   /// Backs the raw-fix [add] entry point only — see its doc.
   final GpsDistanceSource _gps = GpsDistanceSource();
@@ -39,10 +40,30 @@ class AverageSpeedCalculator {
   /// Total integrated travel time (excludes dropouts/teleports).
   Duration get elapsed => _elapsed;
 
+  /// Travel time with stationary intervals removed — the denominator of the
+  /// MOVING average. See [movingAverageMps].
+  Duration get movingElapsed => _movingElapsed;
+
   /// Average ground speed in m/s. Zero until any time has accrued (so there is
   /// never a divide-by-zero, and "no data yet" reads as a clean 0).
   double get averageMps {
     final seconds = _elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    if (seconds <= 0) return 0;
+    return _distanceMeters / seconds;
+  }
+
+  /// Average ground speed over MOVING time only, in m/s — SPEC-v2 §8's second
+  /// average. Same numerator as [averageMps]; the difference is entirely in the
+  /// denominator, which skips intervals where the car did not move.
+  ///
+  /// "Moving" is defined by the distance engine, not by a speed threshold of
+  /// our own: a delta that carries no distance is a stop. That reuses the
+  /// min-movement floor and accuracy gating already applied in
+  /// [GpsDistanceSource], so the two averages can never disagree about what
+  /// counts as movement — which a second, independent threshold here would
+  /// eventually let them do.
+  double get movingAverageMps {
+    final seconds = _movingElapsed.inMicroseconds / Duration.microsecondsPerSecond;
     if (seconds <= 0) return 0;
     return _distanceMeters / seconds;
   }
@@ -52,6 +73,10 @@ class AverageSpeedCalculator {
   void addDelta(DistanceDelta d) {
     if (!d.meters.isFinite || d.meters < 0) return;
     _elapsed += d.dt;
+    // A delta with distance is movement; one without is a stop. Corrections
+    // carry dt == 0, so they land in neither denominator and inflate neither
+    // average.
+    if (d.meters > 0) _movingElapsed += d.dt;
     _distanceMeters += d.meters;
   }
 
@@ -70,6 +95,7 @@ class AverageSpeedCalculator {
   void reset() {
     _distanceMeters = 0;
     _elapsed = Duration.zero;
+    _movingElapsed = Duration.zero;
     _gps.reset();
   }
 }

@@ -15,9 +15,12 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:irallymeter/features/average_speed/domain/average_speed_calculator.dart';
+import 'package:irallymeter/features/distance/domain/distance_delta.dart';
 import 'package:irallymeter/features/gps/domain/gps_sample.dart';
 
 void main() {
+  _movingAverageTests();
+
   group('AVERAGE SPEED · AverageSpeedCalculator', () {
     test('01 · no GPS data → average is a clean 0 (no divide-by-zero)', () {
       final c = AverageSpeedCalculator();
@@ -209,5 +212,78 @@ GpsSample _fix({
     accuracyM: acc,
     altitudeM: 0,
     hasFix: true,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-v2 §8's SECOND average, added after Amirali delegated the call.
+//
+// The two averages share a numerator and differ only in the denominator, so the
+// only thing worth testing is that a STOP lands in one and not the other. If
+// they ever move together the feature is decorative.
+// ---------------------------------------------------------------------------
+void _movingAverageTests() {
+  group('§8 · MOVING average excludes stopped time', () {
+    test('01 · a stop drags the overall average down and leaves MOV alone', () {
+      final c = AverageSpeedCalculator();
+
+      // 100 s of genuine movement at 20 m/s.
+      c.addDelta(_delta(meters: 2000, seconds: 100));
+      final movingAfterDrive = c.movingAverageMps;
+      expect(c.averageMps, closeTo(20, 0.01));
+      expect(movingAfterDrive, closeTo(20, 0.01));
+
+      // 100 s parked: the engine reports time with no distance.
+      c.addDelta(_delta(meters: 0, seconds: 100));
+
+      expect(c.averageMps, closeTo(10, 0.01),
+          reason: 'the overall average MUST decay while stopped — that is what '
+              '"(ALL)" means and why the tile is labelled');
+      expect(c.movingAverageMps, closeTo(movingAfterDrive, 0.01),
+          reason: 'the moving average must be untouched by a stop, otherwise '
+              'it is just a second copy of the overall one');
+    });
+
+    test('02 · a correction inflates neither denominator', () {
+      final c = AverageSpeedCalculator();
+      c.addDelta(_delta(meters: 1000, seconds: 100));
+
+      // Tunnel reconciliation: distance with no time of its own.
+      c.addDelta(_delta(meters: 500, seconds: 0, source: DistanceSource.sensor));
+
+      expect(c.elapsed, const Duration(seconds: 100));
+      expect(c.movingElapsed, const Duration(seconds: 100));
+      expect(c.averageMps, closeTo(15, 0.01));
+      expect(c.movingAverageMps, closeTo(15, 0.01),
+          reason: 'a correction adds distance to both averages and time to '
+              'neither');
+    });
+
+    test('03 · reset clears the moving denominator too', () {
+      final c = AverageSpeedCalculator();
+      c.addDelta(_delta(meters: 1000, seconds: 50));
+      c.reset();
+
+      expect(c.movingElapsed, Duration.zero);
+      expect(c.movingAverageMps, 0,
+          reason: 'a stale moving denominator would survive a leg reset and '
+              'make the next stage read high');
+    });
+  });
+}
+
+/// A distance increment, the way the engine emits one. `seconds: 0` is a
+/// CORRECTION (pure distance, no time of its own).
+DistanceDelta _delta({
+  required double meters,
+  required int seconds,
+  DistanceSource source = DistanceSource.gps,
+}) {
+  return DistanceDelta(
+    timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    meters: meters,
+    dt: Duration(seconds: seconds),
+    speedMps: seconds > 0 ? meters / seconds : 0,
+    source: source,
   );
 }

@@ -23,6 +23,9 @@ class AverageSpeedDisplay extends ConsumerWidget {
     final value = ref.watch(
       averageSpeedMpsProvider.select((mps) => Formatters.speed(mps, unit)),
     );
+    final moving = ref.watch(
+      movingAverageSpeedMpsProvider.select((mps) => Formatters.speed(mps, unit)),
+    );
     final colors = InstrumentColors.of(context);
     // §5.1: average speed is distance / time, and the distance half may be
     // estimated — so it is an affected value like the trips and the odometer.
@@ -45,26 +48,45 @@ class AverageSpeedDisplay extends ConsumerWidget {
       // time and being early.
       label: 'AVG (ALL)',
       onTap: () => ref.read(averageSpeedProvider.notifier).reset(),
-      child: Row(
-        // Shrink-wrap: InstrumentBox scales the value area to fit the tile.
+      child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            value.toString(),
-            style: Theme.of(context)
-                .textTheme
-                .displaySmall
-                ?.copyWith(color: avgColor),
+          Row(
+            // Shrink-wrap: InstrumentBox scales the value area to fit the tile.
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                value.toString(),
+                style: Theme.of(context)
+                    .textTheme
+                    .displaySmall
+                    ?.copyWith(color: avgColor),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                unit.label,
+                style: TextStyle(
+                  color: colors.secondary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 6),
+          // The MOVING average rides under the overall one rather than taking a
+          // sixth grid tile. Both are named on screen, which is what §8 asks
+          // for; a co-driver who cannot tell which average they are reading is
+          // the failure this guards against.
           Text(
-            unit.label,
+            'MOV $moving',
             style: TextStyle(
               color: colors.secondary,
-              fontSize: 16,
+              fontSize: 13,
               fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
             ),
           ),
         ],

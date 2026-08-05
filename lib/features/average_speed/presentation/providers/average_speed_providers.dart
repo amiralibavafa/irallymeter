@@ -8,16 +8,23 @@ import '../../domain/average_speed_calculator.dart';
 class AverageSpeedState {
   const AverageSpeedState({
     required this.averageMps,
+    required this.movingAverageMps,
     required this.distanceMeters,
     required this.elapsed,
   });
 
   final double averageMps;
+
+  /// SPEC-v2 §8's second average: same distance, stationary time excluded.
+  final double movingAverageMps;
   final double distanceMeters;
   final Duration elapsed;
 
-  static const zero =
-      AverageSpeedState(averageMps: 0, distanceMeters: 0, elapsed: Duration.zero);
+  static const zero = AverageSpeedState(
+      averageMps: 0,
+      movingAverageMps: 0,
+      distanceMeters: 0,
+      elapsed: Duration.zero);
 }
 
 /// Drives an [AverageSpeedCalculator] from the DISTANCE ENGINE (the same source
@@ -44,6 +51,7 @@ class AverageSpeedController extends Notifier<AverageSpeedState> {
 
   AverageSpeedState _snapshot() => AverageSpeedState(
         averageMps: _calc.averageMps,
+        movingAverageMps: _calc.movingAverageMps,
         distanceMeters: _calc.distanceMeters,
         elapsed: _calc.elapsed,
       );
@@ -62,3 +70,8 @@ final averageSpeedProvider =
 /// Fine-grained slice so the dashboard widget only rebuilds on average change.
 final averageSpeedMpsProvider = Provider<double>(
     (ref) => ref.watch(averageSpeedProvider.select((s) => s.averageMps)));
+
+/// Same slice for the moving average, so the tile's two numbers rebuild
+/// independently of each other.
+final movingAverageSpeedMpsProvider = Provider<double>(
+    (ref) => ref.watch(averageSpeedProvider.select((s) => s.movingAverageMps)));

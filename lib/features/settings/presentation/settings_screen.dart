@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -52,6 +53,8 @@ class SettingsScreen extends ConsumerWidget {
             value: settings.useTrueNorth,
             onChanged: (_) => ctrl.toggleTrueNorth(),
           ),
+          const _SectionTitle('PERMISSIONS'),
+          const _LocationPermissionRow(),
           const _SectionTitle('CALIBRATION'),
           _CalibrationCard(),
           const _SectionTitle('TRIP'),
@@ -315,6 +318,96 @@ class _SectionTitle extends StatelessWidget {
             style: const TextStyle(
                 color: AppColors.accent, fontWeight: FontWeight.w800, letterSpacing: 2, fontSize: 13)),
       );
+}
+
+/// B7 — a way BACK from a denied location permission.
+///
+/// Before this, tapping DON'T ALLOW left the app permanently dead with no
+/// in-app explanation: the rationale screen is shown once and never again, so
+/// an accidental deny meant a trip counter that silently never moved. The
+/// alternative considered was re-showing the rationale whenever location is
+/// missing, which was rejected because it nags the person who denied
+/// deliberately. A row they have to come and find does neither.
+///
+/// Android distinguishes "denied" (askable) from "denied forever" (only the
+/// system settings page can undo it), so this checks first and routes to the
+/// right one instead of firing a request that the OS would silently swallow.
+class _LocationPermissionRow extends ConsumerStatefulWidget {
+  const _LocationPermissionRow();
+
+  @override
+  ConsumerState<_LocationPermissionRow> createState() =>
+      _LocationPermissionRowState();
+}
+
+class _LocationPermissionRowState
+    extends ConsumerState<_LocationPermissionRow> {
+  LocationPermission? _permission;
+  bool _serviceOn = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final p = await Geolocator.checkPermission();
+    final on = await Geolocator.isLocationServiceEnabled();
+    if (!mounted) return;
+    setState(() {
+      _permission = p;
+      _serviceOn = on;
+    });
+  }
+
+  Future<void> _act() async {
+    // Location switched off device-wide: no app-level permission helps.
+    if (!_serviceOn) {
+      await Geolocator.openLocationSettings();
+      await _refresh();
+      return;
+    }
+    if (_permission == LocationPermission.deniedForever) {
+      await Geolocator.openAppSettings();
+    } else {
+      await Geolocator.requestPermission();
+    }
+    await _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final granted = _serviceOn &&
+        (_permission == LocationPermission.always ||
+            _permission == LocationPermission.whileInUse);
+
+    final (String value, Color color) = switch ((granted, _serviceOn)) {
+      (true, _) => ('GRANTED', AppColors.ok),
+      (false, false) => ('LOCATION OFF', AppColors.danger),
+      _ => ('TAP TO GRANT', AppColors.warn),
+    };
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+          color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
+      child: ListTile(
+        title: const Text('Location access'),
+        subtitle: granted
+            ? null
+            : const Text('The trip counter cannot measure without it'),
+        trailing: Text(
+          value,
+          style: TextStyle(
+              color: color, fontWeight: FontWeight.w700, fontSize: 13),
+        ),
+        // Still tappable when granted: it is the honest way to confirm the
+        // state, and re-requesting an already-granted permission is a no-op.
+        onTap: _act,
+      ),
+    );
+  }
 }
 
 class _SwitchRow extends StatelessWidget {
