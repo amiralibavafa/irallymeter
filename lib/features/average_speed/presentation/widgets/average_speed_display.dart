@@ -50,7 +50,9 @@ class AverageSpeedDisplay extends ConsumerWidget {
       // keeps both denominators. Only the rendering changed, so restoring it is
       // a display decision, not a rebuild.
       label: 'AVG (MOVING)',
-      onTap: () => ref.read(averageSpeedProvider.notifier).reset(),
+      // Long-press for the same reason as the trip tiles: this is a
+      // destructive action on a target that fills a large part of the cluster.
+      onLongPress: () => ref.read(averageSpeedProvider.notifier).reset(),
       child: Row(
         // Shrink-wrap: InstrumentBox scales the value area to fit the tile.
         mainAxisSize: MainAxisSize.min,

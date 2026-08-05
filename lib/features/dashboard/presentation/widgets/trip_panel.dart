@@ -13,6 +13,7 @@ import 'instrument_box.dart';
 import 'measurement_badge.dart';
 
 /// A single trip counter readout with a large value and a reset on long-press.
+/// The gesture is long-press because the tile is far too large to risk a tap.
 class TripReadout extends ConsumerWidget {
   const TripReadout({super.key, required this.counter});
 
@@ -41,7 +42,8 @@ class TripReadout extends ConsumerWidget {
     return InstrumentBox(
       label: label,
       accent: counter == TripCounter.a ? AppColors.accent : null,
-      onTap: () => _confirmReset(context, ref),
+      // LONG-press, not tap. See _resetTrip.
+      onLongPress: () => _resetTrip(ref),
       child: Row(
         // Shrink-wrap: InstrumentBox scales the whole value area to fit the
         // tile, so a flex child here would ask it for infinite width.
@@ -67,7 +69,16 @@ class TripReadout extends ConsumerWidget {
     );
   }
 
-  void _confirmReset(BuildContext context, WidgetRef ref) {
+  /// Discards this counter's distance.
+  ///
+  /// Bound to LONG-PRESS. It was bound to `onTap` from the initial commit while
+  /// being named `_confirmReset` and documented as long-press, and it confirmed
+  /// nothing — so one brush against a tile that is ~40 % of the cluster zeroed
+  /// a live stage. Lock mode would have caught it and is off by default.
+  ///
+  /// Renamed as well as rebound: a method called `_confirmReset` that does not
+  /// confirm is how the binding survived review in the first place.
+  void _resetTrip(WidgetRef ref) {
     ref.read(tripProvider.notifier).resetTrip(counter);
   }
 }

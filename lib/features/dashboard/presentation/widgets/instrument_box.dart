@@ -25,6 +25,7 @@ class InstrumentBox extends StatelessWidget {
     required this.child,
     this.accent,
     this.onTap,
+    this.onLongPress,
     // Tight vertical padding: on a short landscape phone several of these
     // stack, and every pixel of chrome comes straight out of the value.
     this.padding = const EdgeInsets.fromLTRB(14, 8, 14, 10),
@@ -34,6 +35,13 @@ class InstrumentBox extends StatelessWidget {
   final Widget child;
   final Color? accent;
   final VoidCallback? onTap;
+
+  /// Destructive actions belong here, never on [onTap].
+  ///
+  /// A tile fills roughly 40 % of the cluster in landscape, so a tap target
+  /// this large is one glove brush away on every stage. Anything that discards
+  /// measured distance takes a deliberate hold.
+  final VoidCallback? onLongPress;
   final EdgeInsets padding;
 
   @override
@@ -41,6 +49,7 @@ class InstrumentBox extends StatelessWidget {
     final colors = InstrumentColors.of(context);
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Container(
         decoration: BoxDecoration(
           color: AppColors.surface,
