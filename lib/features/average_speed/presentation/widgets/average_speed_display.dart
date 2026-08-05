@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/widgets/stable_width_text.dart';
 import '../../../dashboard/presentation/widgets/instrument_box.dart';
 import '../../../settings/presentation/providers/settings_providers.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -59,8 +60,12 @@ class AverageSpeedDisplay extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          Text(
-            value.toString(),
+          // Same tile mechanism as the trip readouts: the FittedBox scales on
+          // the child's own size, so 9 renders larger than 100. Three digits
+          // covers every average this readout will show.
+          StableWidthText(
+            value: value.toString(),
+            template: '000',
             style: Theme.of(context)
                 .textTheme
                 .displaySmall

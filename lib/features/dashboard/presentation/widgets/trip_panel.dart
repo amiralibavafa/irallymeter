@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/formatters.dart';
+import '../../../../core/widgets/stable_width_text.dart';
 import '../../../settings/presentation/providers/settings_providers.dart';
 import '../../../trip/domain/trip_state.dart';
 import '../../../trip/presentation/providers/trip_providers.dart';
@@ -51,8 +52,14 @@ class TripReadout extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          Text(
-            Formatters.trip(meters, metric: metric),
+          // Fixed width across the whole normal range. Measured on the real
+          // widget at a 360 x 110 tile: 9.99 rendered 67.0 px tall and 100.00
+          // rendered 50.4, because the FittedBox scales on the child's own
+          // size and an extra character is an extra 1/5 of the width. The
+          // decimal point moved 83 px with it.
+          StableWidthText(
+            value: Formatters.trip(meters, metric: metric),
+            template: '000.00',
             style: Theme.of(context).textTheme.displaySmall?.copyWith(color: digitColor),
           ),
           const SizedBox(width: 6),
