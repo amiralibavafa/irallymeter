@@ -79,11 +79,25 @@ class AppConstants {
   /// Silence this long, with location services ENABLED the whole time, is
   /// finally treated as a dead stream even without any other evidence.
   ///
-  /// Deliberately longer than any real tunnel transit: Niayesh is 399 s at
-  /// 60 km/h and Lærdal about 1102 s at 80. One re-subscribe after ten minutes
-  /// is a rounding error; one every twenty seconds is a battery and reliability
-  /// problem.
-  static const Duration gpsSilenceHardLimit = Duration(minutes: 10);
+  /// THIS WAS TEN MINUTES, AND ITS OWN COMMENT NAMED THE COUNTER-EXAMPLE: it
+  /// claimed to be "longer than any real tunnel transit" while citing Lærdal at
+  /// about 1102 s against a 600 s limit. So the backstop was guaranteed to fire
+  /// inside the longest road tunnel in the world — tearing down the very
+  /// foreground service that keeps the receiver alive in there, and recording a
+  /// stall the road-test procedure requires to stay at zero.
+  ///
+  /// Thirty minutes clears Lærdal at 60 km/h (1471 s), not merely at its 80 km/h
+  /// limit, because a tunnel is driven at the speed traffic allows.
+  ///
+  /// BE HONEST ABOUT WHAT THIS CAN AND CANNOT DO. No duration is safe: a jam
+  /// inside a long tunnel can outlast any of them, so silence alone can never
+  /// prove a subscription is dead. That is exactly why it is the SECOND
+  /// trigger and not the first — [GpsStallDetector] resubscribes on the
+  /// services OFF→ON transition, which is evidence, and this is only a backstop
+  /// for failure modes not yet seen. Its cost is deliberately kept small at both
+  /// ends: it fires at most once per half hour of silence, and firing on
+  /// elapsed time alone is NOT counted as a confirmed stall.
+  static const Duration gpsSilenceHardLimit = Duration(minutes: 30);
 
   /// After the platform position stream errors or ends, wait this long before
   /// re-subscribing. Keeps the GPS engine self-healing instead of latching into

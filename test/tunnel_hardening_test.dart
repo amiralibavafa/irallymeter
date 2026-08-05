@@ -371,6 +371,10 @@ void main() {
       expect(d.sawServicesDisabled, isTrue);
       expect(d.onSilentTick(servicesEnabled: true), isTrue,
           reason: 'the OFF -> ON transition is the observed failure');
+      expect(d.sawServicesDisabled, isTrue,
+          reason: 'this is the EVIDENCED path, and the service reads exactly '
+              'this field to decide whether the re-subscribe may be reported '
+              'as a confirmed stall');
     });
 
     test('20 · the hard limit eventually fires even with services up', () {
@@ -382,6 +386,11 @@ void main() {
         expect(d.onSilentTick(servicesEnabled: true), isFalse);
       }
       expect(d.onSilentTick(servicesEnabled: true), isTrue);
+      expect(d.sawServicesDisabled, isFalse,
+          reason: 'the backstop fired on ELAPSED TIME with no evidence of a '
+              'dead subscription, and the service reads this field to decide '
+              'that such a re-subscribe must NOT be counted as a stall — a '
+              'health number that trips on a long tunnel is noise');
     });
 
     test('21 · the hard limit is longer than any real tunnel transit', () {
@@ -392,6 +401,21 @@ void main() {
       expect(AppConstants.gpsSilenceHardLimit.inSeconds,
           greaterThan(seconds(6400, 60)),
           reason: 'Alborz, Tehran');
+      // THIS TEST USED TO PASS WHILE THE CLAIM IN ITS NAME WAS FALSE. It
+      // checked the two tunnels that happen to fit and stopped there, so the
+      // general statement went unexamined — and the constant's OWN comment
+      // named the counter-example, citing Lærdal at about 1102 s against a
+      // 600 s limit. The longest road tunnel in the world is not an exotic
+      // case to leave out of "any real tunnel transit".
+      expect(AppConstants.gpsSilenceHardLimit.inSeconds,
+          greaterThan(seconds(24510, 80)),
+          reason: 'Lærdal, Norway — the longest road tunnel there is, at its '
+              'own speed limit');
+      expect(AppConstants.gpsSilenceHardLimit.inSeconds,
+          greaterThan(seconds(24510, 60)),
+          reason: 'Lærdal again at a realistic 60 km/h. A tunnel is driven at '
+              'the speed traffic allows, not the speed the sign permits, and '
+              'the limit has to hold for the slower one');
     });
 
     test('22 · a fix arriving clears everything', () {

@@ -215,9 +215,19 @@ class GeolocatorGpsService implements GpsRepository {
         stalled = true;
         // ignore: avoid_print
         print('iRallyMeter: GPS stream stalled ($e) — re-subscribing…');
-        // MARKED, unlike the tunnel heartbeat below. This is the only place a
-        // stall is emitted, and it is what GNSS HEALTH counts.
-        yield GpsSample.stalled();
+        // Marked as a STALL only when there is evidence, which is precisely
+        // `sawServicesDisabled` — the services OFF→ON transition. The other way
+        // in here is the elapsed-silence backstop, and elapsed silence cannot
+        // distinguish a dead subscription from a very long tunnel: no duration
+        // can, because a jam inside one outlasts any limit. Counting that as a
+        // confirmed stall would put a false fault on the one field
+        // `ROAD-TEST.md` item 2 asks the tester to read, which is worse than
+        // not counting it — a health number that fires on a normal tunnel is
+        // noise, and C2 already cost us one counter nobody could trust.
+        //
+        // The re-subscribe itself still happens either way; only the CLAIM
+        // about what it means is withheld.
+        yield e.sawServicesDisabled ? GpsSample.stalled() : GpsSample.noFix();
       } catch (e) {
         // The foreground service can fail to start on Android 13+ when the
         // POST_NOTIFICATIONS permission is denied. Drop the FGS requirement for
