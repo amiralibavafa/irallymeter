@@ -60,6 +60,9 @@ final gpsHealthProvider = Provider<GpsHealthStats>((ref) => GpsHealthStats());
 final gpsStateProvider = StreamProvider<GpsState>((ref) {
   final speedFilter = SpeedFilter();
   double smoothedHeading = double.nan;
+  // Which source the heading is currently coming from. Latched deliberately,
+  // with a hysteresis band — see the switch below.
+  bool usingGpsCourse = false;
   GpsSample? prev;
   final controller = StreamController<GpsState>();
 
@@ -91,12 +94,40 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
     // in SECONDS, so the filter has to know how much time a sample represents.
     final speed = speedFilter.add(rawSpeed, s.accuracyM, s.timestamp);
 
-    // Only trust GPS course when actually moving; otherwise hold last heading.
-    if (s.headingDeg.isFinite && speed > AppConstants.speedNoiseFloorMps) {
-      smoothedHeading = smoothedHeading.isNaN
-          ? s.headingDeg
-          : GeoMath.smoothAngle(
-              smoothedHeading, s.headingDeg, AppConstants.headingSmoothing);
+    // Heading source, with hysteresis.
+    //
+    // This used to be a single `if` with no `else`, which made it a ONE-WAY
+    // LATCH rather than the hybrid it is documented as: `smoothedHeading` was
+    // only ever assigned, so after the first moving fix it stayed finite for
+    // the life of the app and `capHeadingProvider` could never fall through to
+    // the magnetometer. Standing still, the cluster showed a stale frozen
+    // course still labelled GPS — a heading it could not know, asserted as
+    // current.
+    //
+    // Releasing on a single threshold would have swapped that for the opposite
+    // fault: a car crawling in traffic sits on the boundary and the source
+    // flips every fix. Hence a band — acquire high, release low, hold in
+    // between.
+    if (speed >= AppConstants.headingGpsAcquireMps) {
+      usingGpsCourse = true;
+    } else if (speed <= AppConstants.headingGpsReleaseMps) {
+      usingGpsCourse = false;
+    }
+
+    if (usingGpsCourse) {
+      // A moving fix with no course reported holds the last good one rather
+      // than dropping the needle; only leaving the band releases.
+      if (s.headingDeg.isFinite) {
+        smoothedHeading = smoothedHeading.isNaN
+            ? s.headingDeg
+            : GeoMath.smoothAngle(
+                smoothedHeading, s.headingDeg, AppConstants.headingSmoothing);
+      }
+    } else {
+      // NaN is the signal `capHeadingProvider` reads to switch to the
+      // magnetometer, and it also means the next acquisition adopts the new
+      // course outright instead of smoothing up from a pre-stop bearing.
+      smoothedHeading = double.nan;
     }
 
     controller.add(GpsState(

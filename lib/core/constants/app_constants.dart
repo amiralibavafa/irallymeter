@@ -113,6 +113,22 @@ class AppConstants {
   /// below for why a per-sample weight was the wrong shape there.
   static const double headingSmoothing = 0.2;
 
+  /// Speed at which GNSS course-over-ground becomes trustworthy (≈5 km/h).
+  ///
+  /// Below roughly walking pace the course field is dominated by position
+  /// noise: the receiver is deriving a bearing from movement that is mostly
+  /// jitter, so it reports a direction the car is not going.
+  static const double headingGpsAcquireMps = 1.4;
+
+  /// Speed at which GNSS course is given up again (≈2.9 km/h).
+  ///
+  /// DELIBERATELY LOWER THAN [headingGpsAcquireMps], and that gap is the whole
+  /// point. With a single threshold, a car crawling in traffic sits exactly on
+  /// it and the heading source flips between GPS and magnetic on every fix,
+  /// which on a driver-facing compass reads as a fault. Inside the band the
+  /// current source simply persists.
+  static const double headingGpsReleaseMps = 0.8;
+
   /// Time constant for the magnetic compass needle.
   ///
   /// The compass previously applied a fixed per-sample weight of 0.2 on every
