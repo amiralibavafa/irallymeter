@@ -5,7 +5,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_clock.dart';
-import '../domain/stage_timer_state.dart' show TimerMode;
+import '../domain/stage_timer_state.dart' show TimerMode, CountdownTarget;
 import 'providers/stage_timer_providers.dart';
 
 class StageTimerScreen extends ConsumerWidget {
@@ -130,8 +130,6 @@ class _CountdownAdjust extends StatelessWidget {
   final bool enabled;
   final ValueChanged<Duration> onChanged;
 
-  static const _min = Duration(seconds: 10);
-  static const _max = Duration(hours: 1);
 
   /// Type an exact target as `m:ss` or `mm:ss`. Parsed and clamped by the same
   /// rules as the steppers, so there is exactly one definition of a legal
@@ -155,7 +153,7 @@ class _CountdownAdjust extends StatelessWidget {
             hintText: 'm:ss',
             helperText: 'minutes:seconds, e.g. 4:30',
           ),
-          onSubmitted: (v) => Navigator.of(ctx).pop(_parse(v)),
+          onSubmitted: (v) => Navigator.of(ctx).pop(CountdownTarget.parse(v)),
         ),
         actions: [
           TextButton(
@@ -164,43 +162,25 @@ class _CountdownAdjust extends StatelessWidget {
           ),
           TextButton(
             onPressed: () =>
-                Navigator.of(ctx).pop(_parse(controller.text)),
+                Navigator.of(ctx).pop(CountdownTarget.parse(controller.text)),
             child: const Text('SET'),
           ),
         ],
       ),
     );
-    if (picked != null) onChanged(_clamp(picked));
+    if (picked != null) onChanged(CountdownTarget.clamp(picked));
   }
-
-  /// `m:ss`, or a bare number read as SECONDS. Returns null on anything else so
-  /// a typo leaves the existing target alone rather than silently zeroing it.
-  static Duration? _parse(String raw) {
-    final t = raw.trim();
-    if (t.isEmpty) return null;
-    final parts = t.split(':');
-    if (parts.length == 1) {
-      final s = int.tryParse(parts[0]);
-      return s == null ? null : Duration(seconds: s);
-    }
-    if (parts.length != 2) return null;
-    final m = int.tryParse(parts[0]);
-    final sec = int.tryParse(parts[1]);
-    if (m == null || sec == null || m < 0 || sec < 0 || sec > 59) return null;
-    return Duration(minutes: m, seconds: sec);
-  }
-
-  static Duration _clamp(Duration d) =>
-      d < _min ? _min : (d > _max ? _max : d);
 
   @override
   Widget build(BuildContext context) {
     // Clamped so the target can never reach zero or negative, which would make
     // the countdown finish the instant it started.
-    void step(Duration by) => onChanged(_clamp(target + by));
+    void step(Duration by) => onChanged(CountdownTarget.clamp(target + by));
 
     Widget chip(String label, Duration by) {
-      final atLimit = by.isNegative ? target <= _min : target >= _max;
+      final atLimit = by.isNegative
+          ? target <= CountdownTarget.min
+          : target >= CountdownTarget.max;
       final on = enabled && !atLimit;
       return Expanded(
         child: GestureDetector(
