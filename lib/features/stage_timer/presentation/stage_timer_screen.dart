@@ -135,37 +135,61 @@ class _CountdownAdjust extends StatelessWidget {
   /// rules as the steppers, so there is exactly one definition of a legal
   /// target rather than one per entry method.
   Future<void> _promptForTarget(BuildContext context) async {
+    // PRE-SELECTED, not just pre-filled. Pre-filling alone was a trap I walked
+    // into testing this: the cursor lands after "1:00", so typing "4:30" gives
+    // "1:004:30", which the parser correctly refuses — and the user sees a
+    // dialog close with nothing changed and no idea why. Selecting the whole
+    // value means the first keystroke replaces it, which is what anyone
+    // retyping a time expects.
     final controller = TextEditingController(
       text: '${target.inMinutes}:'
           '${(target.inSeconds % 60).toString().padLeft(2, '0')}',
     );
+    controller.selection =
+        TextSelection(baseOffset: 0, extentOffset: controller.text.length);
+
     final picked = await showDialog<Duration>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Text('COUNTDOWN TARGET'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.datetime,
-          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
-          decoration: const InputDecoration(
-            hintText: 'm:ss',
-            helperText: 'minutes:seconds, e.g. 4:30',
-          ),
-          onSubmitted: (v) => Navigator.of(ctx).pop(CountdownTarget.parse(v)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('CANCEL'),
-          ),
-          TextButton(
-            onPressed: () =>
-                Navigator.of(ctx).pop(CountdownTarget.parse(controller.text)),
-            child: const Text('SET'),
-          ),
-        ],
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          final parsed = CountdownTarget.parse(controller.text);
+          final valid = parsed != null;
+          return AlertDialog(
+            backgroundColor: AppColors.surface,
+            title: const Text('COUNTDOWN TARGET'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.datetime,
+              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+              onChanged: (_) => setLocal(() {}),
+              decoration: InputDecoration(
+                hintText: 'm:ss',
+                helperText: 'minutes:seconds, e.g. 4:30',
+                // Says WHY rather than failing quietly. Before this, an
+                // unparseable entry closed the dialog and changed nothing,
+                // which reads as the app ignoring you.
+                errorText: valid ? null : 'not a time',
+              ),
+              onSubmitted: (v) {
+                final d = CountdownTarget.parse(v);
+                if (d != null) Navigator.of(ctx).pop(d);
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('CANCEL'),
+              ),
+              TextButton(
+                // Disabled rather than silently no-op, so the dialog can never
+                // close having quietly discarded what was typed.
+                onPressed: valid ? () => Navigator.of(ctx).pop(parsed) : null,
+                child: const Text('SET'),
+              ),
+            ],
+          );
+        },
       ),
     );
     if (picked != null) onChanged(CountdownTarget.clamp(picked));
