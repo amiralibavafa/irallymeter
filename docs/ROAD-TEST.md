@@ -126,6 +126,22 @@ Drive **50 km or more** against measured markers.
   - If it says `TRUE` while the heading is visibly wrong, 12 is too loose.
   - If the label flips between `TRUE` and `MAG` while driving, the band between
     12 and 20 is too narrow.
+
+  **Read the actual numbers on the SECTIONS screen.** The GNSS HEALTH panel now
+  shows `COMPASS OFFSET` and `RESIDUAL`, and the residual is the one that
+  decides. Symptoms alone say the thresholds are wrong; only the residual says
+  what to change them to, so please write it down a few times during the drive
+  rather than only at the end.
+- **Magnetic interference, which the app does NOT detect.** A phone mount with a
+  magnet in it distorts the field differently on every heading, and that is
+  worth tens of degrees. There is no detection for it and none is planned yet:
+  `sensors_plus` exposes no sensor-accuracy channel, so real detection is a
+  native addition on both platforms rather than something readable from Dart.
+
+  The residual is the closest proxy we have. **If it never settles below 12 no
+  matter how well the drive goes, suspect the mount before suspecting the
+  threshold**, and try the same route with the phone somewhere else in the car.
+  That comparison is genuinely useful data and it costs one extra run.
 - **NOT fixed:** tilt compensation uses the raw accelerometer, so heading is
   expected to wander while accelerating, braking and cornering. **Does it?**
   That is the remaining known cause.

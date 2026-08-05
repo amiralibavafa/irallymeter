@@ -33,6 +33,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:irallymeter/core/di/providers.dart';
 import 'package:irallymeter/core/storage/storage_service.dart';
 import 'package:irallymeter/core/theme/app_theme.dart';
+import 'package:irallymeter/features/compass/presentation/providers/compass_providers.dart';
 import 'package:irallymeter/features/distance/presentation/providers/distance_providers.dart';
 import 'package:irallymeter/features/distance/presentation/section_log_screen.dart';
 import 'package:irallymeter/features/gps/domain/gps_repository.dart';
@@ -111,14 +112,50 @@ void main() {
 
       await _teardown(tester, container, gps, ticks);
     });
+
+    testWidgets('03 · the compass residual is readable on the road',
+        (tester) async {
+      // ROAD-TEST section 6 asks whether C5's 12/20 agreement thresholds are
+      // right, and they were reasoned rather than measured. Its symptom list
+      // tells a tester the thresholds are WRONG but not what to change them
+      // to — only the residual does that. Shipping the question without the
+      // number is the same mistake as C2's unfalsifiable stall counter.
+      final gps = StreamController<GpsSample>();
+      final ticks = StreamController<int>();
+      final container =
+          _container(storage, gps.stream, ticks.stream, magnetometer: true);
+
+      await _pump(tester, container);
+      expect(find.text('RESIDUAL'), findsOneWidget);
+      expect(find.text('COMPASS OFFSET'), findsOneWidget);
+      expect(find.text('not confirmed'), findsOneWidget,
+          reason: 'nothing has been learned yet, and the panel must say so '
+              'rather than showing a bare number that looks authoritative');
+
+      for (var i = 1; i <= 30; i++) {
+        gps.add(_fix(tMs: i * 1000));
+        await _settle(tester);
+      }
+      ticks.add(1);
+      await _settle(tester);
+
+      expect(find.text('learned'), findsOneWidget,
+          reason: 'the drive was long enough and consistent enough to earn it');
+      expect(find.text('6.0°'), findsOneWidget,
+          reason: 'GPS course 90 against a magnetometer reading 84 is a +6 '
+              'offset, and a tester tuning the thresholds needs to SEE it');
+
+      await _teardown(tester, container, gps, ticks);
+    });
   });
 }
 
 ProviderContainer _container(
   StorageService storage,
   Stream<GpsSample> gps,
-  Stream<int> ticks,
-) {
+  Stream<int> ticks, {
+  bool magnetometer = false,
+}) {
   final container = ProviderContainer(overrides: [
     storageProvider.overrideWithValue(storage),
     gpsRepositoryProvider.overrideWithValue(_FakeGps(gps)),
@@ -126,11 +163,16 @@ ProviderContainer _container(
     // pending-timer check — the same reason gpsDropoutProvider is pinned in
     // dashboard_layout_test.
     displayTickProvider.overrideWith((ref) => ticks),
+    magneticHeadingProvider.overrideWith((ref) => magnetometer
+        ? Stream<double>.value(84)
+        : const Stream<double>.empty()),
   ]);
   // app.dart keeps the GPS pipeline alive app-wide; without this nothing folds
   // the fixes into the health stats and the test would prove only that the
   // panel renders zeros.
   container.listen(gpsStateProvider, (_, __) {}, fireImmediately: true);
+  // HeadingDisplay keeps the calibration alive app-wide (C4).
+  container.listen(capHeadingProvider, (_, __) {}, fireImmediately: true);
   return container;
 }
 
@@ -165,6 +207,10 @@ Future<void> _teardown(
   await _unmount(tester);
   await gps.close();
   await ticks.close();
+  // Riverpod schedules provider refreshes on a zero-duration timer, so a
+  // stream that delivered late leaves one queued. Flush before disposing or
+  // flutter_test reports it as a leak.
+  await tester.pump(Duration.zero);
   container.dispose();
 }
 

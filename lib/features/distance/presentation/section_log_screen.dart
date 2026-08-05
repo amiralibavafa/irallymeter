@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_clock.dart';
+import '../../compass/presentation/providers/compass_providers.dart';
 import '../../gps/presentation/providers/gps_providers.dart';
 import '../domain/estimated_section.dart';
 import 'providers/distance_providers.dart';
@@ -97,6 +99,7 @@ class _HealthPanel extends ConsumerWidget {
     // has to come from something whose value genuinely changes, which is what
     // `measurementStatusProvider` already uses this tick for.
     ref.watch(displayTickProvider);
+    final cal = ref.watch(headingCalibrationProvider);
     final hz = h.sustainedHz;
     return Container(
       padding: const EdgeInsets.all(14),
@@ -153,6 +156,35 @@ class _HealthPanel extends ConsumerWidget {
                 label: 'NO-FIX TICKS',
                 value: '${h.noFixSamples}',
                 hint: 'watchdog heartbeats'),
+          ]),
+          const SizedBox(height: 8),
+          // The compass calibration, made readable on the road.
+          //
+          // ROAD-TEST section 6 asks whether the 12/20 agreement thresholds are
+          // right, and those numbers were reasoned rather than measured. The
+          // symptoms it lists (stuck on MAG, TRUE while visibly wrong, the
+          // label flipping) tell a tester the thresholds are WRONG but not what
+          // to change them to. Only the residual does that.
+          //
+          // RESIDUAL is also the closest thing the app has to interference
+          // detection. A magnetic phone mount distorts the field differently on
+          // every heading, so it shows up here as a residual that will not come
+          // down — see C12 in docs/AUDIT-REPORT.md for why real detection needs
+          // a native sensor-accuracy channel that sensors_plus does not expose.
+          Row(children: [
+            _Field(
+                label: 'COMPASS OFFSET',
+                value: cal.samples == 0
+                    ? '--'
+                    : '${cal.offsetDeg.toStringAsFixed(1)}°',
+                hint: cal.isLearned ? 'learned' : 'not confirmed'),
+            _Field(
+                label: 'RESIDUAL',
+                value: cal.samples == 0
+                    ? '--'
+                    : '${cal.residualDeg.toStringAsFixed(1)}°',
+                hint: 'earns TRUE at <= '
+                    '${AppConstants.headingCalibrationAgreeDeg.toStringAsFixed(0)}'),
           ]),
         ],
       ),
