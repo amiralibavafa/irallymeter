@@ -173,6 +173,11 @@ class SensorDistanceSource {
       dt: Duration(milliseconds: dtMs),
       speedMps: _speedMps,
       source: DistanceSource.sensor,
+      // The estimator zeroes its speed below the noise floor (just above), so
+      // a non-zero speed here IS its verdict that the car is still moving. It
+      // needs no floor of its own, and giving it one would let the two sources
+      // disagree about what counts as a stop inside the same tunnel.
+      moving: _speedMps > 0,
     );
   }
 

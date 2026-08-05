@@ -73,10 +73,13 @@ class AverageSpeedCalculator {
   void addDelta(DistanceDelta d) {
     if (!d.meters.isFinite || d.meters < 0) return;
     _elapsed += d.dt;
-    // A delta with distance is movement; one without is a stop. Corrections
-    // carry dt == 0, so they land in neither denominator and inflate neither
-    // average.
-    if (d.meters > 0) _movingElapsed += d.dt;
+    // The SOURCE says whether the car was moving; this used to infer it from
+    // `d.meters > 0`, which asks a different question — "did this sample bank
+    // distance" — and gets a different answer whenever the anchor is held. See
+    // [DistanceDelta.moving]: at 5 Hz that inference roughly DOUBLED this
+    // average. Corrections carry dt == 0, so they land in neither denominator
+    // and inflate neither average.
+    if (d.moving) _movingElapsed += d.dt;
     _distanceMeters += d.meters;
   }
 

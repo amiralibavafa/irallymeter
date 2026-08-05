@@ -28,6 +28,7 @@ class DistanceDelta {
     required this.dt,
     required this.speedMps,
     required this.source,
+    required this.moving,
   });
 
   /// Instant this increment ends at.
@@ -45,6 +46,27 @@ class DistanceDelta {
 
   final DistanceSource source;
 
+  /// Whether the vehicle was MOVING across this increment — the denominator of
+  /// the SPEC-v2 §8 moving average.
+  ///
+  /// Deliberately NOT the same question as `meters > 0`, which is what the
+  /// average-speed integrator used to ask. That asked "did this sample bank
+  /// distance", and at a high fix rate the two answers diverge:
+  ///
+  /// §6.1 rule 3 holds the distance anchor while a displacement is smaller than
+  /// the fix's own accuracy, so small real movements accumulate rather than
+  /// being thrown away. At 5 Hz, 20 m/s and 5 m accuracy each interval covers
+  /// 4 m against a 5 m floor, so one interval in two banks nothing — and reading
+  /// that as a STOP gave the moving denominator half the time while the
+  /// numerator kept all the distance. The moving average roughly DOUBLED, and
+  /// got worse the faster the receiver.
+  ///
+  /// A held interval is movement the engine has not banked yet. This field is
+  /// the source's own verdict on whether the car was moving, decided once where
+  /// the speed and the gates are already known, so no consumer has to infer it
+  /// from a number that was never about that.
+  final bool moving;
+
   /// A pure distance correction with no time of its own.
   factory DistanceDelta.correction({
     required DateTime timestamp,
@@ -57,6 +79,10 @@ class DistanceDelta {
         dt: Duration.zero,
         speedMps: speedMps,
         source: DistanceSource.gps,
+        // Moot rather than arbitrary: `dt` is zero, so a correction contributes
+        // to NEITHER denominator whatever this says. Marked true because the
+        // distance being reconciled was covered while moving.
+        moving: true,
       );
 
   @override

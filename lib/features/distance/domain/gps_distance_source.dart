@@ -229,6 +229,11 @@ class GpsDistanceSource {
       // path needed, not carried through to the emit site.
       speedMps: dopplerUsable ? s.speedMps : impliedSpeed,
       source: DistanceSource.gps,
+      // The §6.1 rule 2 verdict itself, NOT `moved > 0`. The two differ exactly
+      // when the anchor is being held: the car is moving, but this particular
+      // sample's displacement has not yet cleared the noise floor. Reporting
+      // that as a stop is what doubled the moving average at 5 Hz.
+      moving: moving,
     );
   }
 

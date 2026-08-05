@@ -259,6 +259,53 @@ void _movingAverageTests() {
               'neither');
     });
 
+    test('04 · a high fix rate does not double the MOVING average', () {
+      // THE DEFECT: `addDelta` classified movement as `meters > 0`, i.e. "did
+      // THIS sample bank distance". At a high fix rate that is not the same
+      // question as "was the car moving", and the gap between them is where the
+      // bug lives.
+      //
+      // §6.1 rule 3 holds the distance anchor while a displacement is smaller
+      // than the fix's own accuracy, so small real movements ACCUMULATE instead
+      // of being discarded. At 5 Hz, 20 m/s and 5 m accuracy each interval
+      // covers 4 m against a 5 m floor: the first is held (meters == 0) and the
+      // second banks all 8 m. The car never stopped, but one interval in two was
+      // classified as a stop, so the moving denominator collected half the time
+      // while the numerator collected all of the distance.
+      //
+      // The result is a MOVING average of ~40 m/s on a car doing 20, and it gets
+      // worse as the receiver gets faster — the same shape as the `[3.16]`
+      // anchor bug, one layer up. The overall average is unaffected, which is
+      // why this could sit next to a readout that looks perfectly correct.
+      const hz = 5;
+      const speedMps = 20.0;
+      const seconds = 10;
+      const metresPerDegLat = 111320.0;
+      const stepM = speedMps / hz; // 4 m per fix
+      final c = AverageSpeedCalculator();
+
+      for (var i = 0; i <= seconds * hz; i++) {
+        c.add(_fix(
+          lat: 46.0 + (i * stepM) / metresPerDegLat,
+          lon: 8.0,
+          // Accuracy 5 m is healthy (well inside the usable limit) and is the
+          // whole point: it sets the noise floor ABOVE the per-fix step.
+          acc: 5,
+          tMs: i * (1000 ~/ hz),
+        ));
+      }
+
+      expect(c.distanceMeters, closeTo(speedMps * seconds, 10),
+          reason: 'precondition: the distance itself is right — the anchor hold '
+              'banks the metres, it does not lose them');
+      expect(c.averageMps, closeTo(speedMps, 1),
+          reason: 'precondition: the overall average was never wrong');
+      expect(c.movingAverageMps, closeTo(speedMps, 1),
+          reason: 'the car did not stop once, so MOV must equal the overall '
+              'average; a held interval is movement the engine has not banked '
+              'YET, not a stop');
+    });
+
     test('03 · reset clears the moving denominator too', () {
       final c = AverageSpeedCalculator();
       c.addDelta(_delta(meters: 1000, seconds: 50));
@@ -285,5 +332,11 @@ DistanceDelta _delta({
     dt: Duration(seconds: seconds),
     speedMps: seconds > 0 ? meters / seconds : 0,
     source: source,
+    // These are hand-built deltas standing in for engine output, so the
+    // shorthand the engine can no longer use is right here: a synthetic delta
+    // with distance represents movement, one without represents a stop. Test 04
+    // deliberately drives real fixes instead, because it is exactly the case
+    // where that shorthand is wrong.
+    moving: meters > 0,
   );
 }
