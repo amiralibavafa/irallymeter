@@ -57,6 +57,26 @@ final headingCalibrationProvider = Provider<HeadingCalibration>((ref) {
 /// cluster used to do, and a display that asserts something false is worse than
 /// one that admits it does not know.
 final capHeadingProvider = Provider<double>((ref) {
+  // Read BEFORE any early return, and deliberately not where it is used.
+  //
+  // A Provider is created lazily on first read, and [headingCalibrationProvider]
+  // only starts listening for (course, magnetic) pairs once it exists. Both
+  // reads of it used to sit behind guards — below the `isFinite` return and
+  // below the true-north check — and the first of those is the fatal one: while
+  // the car is MOVING the GPS course is finite, so the display never reached
+  // the magnetic branch, so the provider was never created. Moving is the only
+  // time it can learn anything, so it learnt nothing.
+  //
+  // Silent, and it read as its own opposite: the cluster said MAG, which looks
+  // like "still learning" and actually meant "not learning". A driver with the
+  // switch off (the default) never created it at all, so turning true north on
+  // after an hour of driving started from zero.
+  //
+  // `HeadingDisplay` watches this provider from app start and neither provider
+  // is autoDispose, so this single read keeps the listener alive for the
+  // session.
+  final calibration = ref.watch(headingCalibrationProvider);
+
   final gpsHeading = ref.watch(headingProvider); // NaN when stopped
   if (gpsHeading.isFinite) return gpsHeading;
 
@@ -65,7 +85,7 @@ final capHeadingProvider = Provider<double>((ref) {
 
   final wantsTrue = ref.watch(settingsProvider.select((s) => s.useTrueNorth));
   if (!wantsTrue) return mag;
-  return ref.watch(headingCalibrationProvider).toTrue(mag);
+  return calibration.toTrue(mag);
 });
 
 /// Whether the heading currently comes from GPS course vs the magnetic sensor,
