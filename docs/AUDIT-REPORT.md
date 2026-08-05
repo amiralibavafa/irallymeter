@@ -2,11 +2,32 @@
 
 Phases 0–5 (Claude's half). `origin/main` never touched.
 
+> **THIS DOCUMENT IS NO LONGER THE CURRENT STATE. Read `docs/QA-REPORT.md`
+> first.**
+>
+> It is accurate for Phases 0–5 and is kept as the record of that work. A later
+> **production-quality pass** (2026-08-05) found twenty-two further items,
+> C0–C21, and added the test infrastructure this document says does not exist.
+> The headline numbers below are therefore superseded, not wrong-at-the-time:
+>
+> | | This document | Now |
+> |---|---|---|
+> | branch head | `SA-V2` `8a05172` | **`SA-V3` `89cd28e`** |
+> | tests | 354 pass / 1 skip | **411 pass / 1 skip / 0 fail** |
+> | integration | none | **5 / 5 green** |
+> | goldens | none | **4** + a determinism test |
+> | iOS | never built | **builds, installs, launches** |
+>
+> The worst defect in the project was found AFTER this document was written:
+> **C0, a single tap on a trip tile zeroed it**, present in `main` from the
+> initial commit. See `QA-REPORT.md`.
+
 | | |
 |---|---|
 | Base | `main` `c151ca2` — Amirali's initial commit, untouched throughout |
 | Backend branch | `SA-V1` `c6f6257` — 34 commits (Phase 3) |
 | UI + review branch | `SA-V2` `8a05172` — 48 commits (Phase 4, security, Phase 5 self-review) |
+| Polish + test branch | `SA-V3` `89cd28e` — off `SA-V2`, so the two review separately |
 | PR | **Not opened yet** — waits on Codex findings, per Saam's decision |
 
 ---
