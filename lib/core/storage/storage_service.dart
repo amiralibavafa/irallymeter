@@ -51,6 +51,12 @@ class StorageKeys {
   static const String lastLng = 'last_lng';
   static const String sessions = 'route_sessions'; // List<String> of JSON
 
+  /// The learned magnetic-to-true heading offset, and how many observations
+  /// stand behind it. Written only once the calibration is LEARNED — see
+  /// `HeadingCalibrationRepository`.
+  static const String headingOffsetDeg = 'heading_offset_deg';
+  static const String headingSamples = 'heading_samples';
+
   /// Whether the permission rationale has been shown and acted on. Set once the
   /// user has been through it, whether they granted anything or not — the
   /// screen explains, it does not enforce, so re-showing it would only nag.

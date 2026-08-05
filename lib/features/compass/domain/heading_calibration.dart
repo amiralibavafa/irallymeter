@@ -134,6 +134,35 @@ class HeadingCalibration {
     return (magneticDeg + _offsetDeg + 360.0) % 360.0;
   }
 
+  /// Bring back an offset learned in a PREVIOUS session.
+  ///
+  /// Restores the offset but deliberately NOT the verdict. A stored offset
+  /// absorbs two things at once: declination, a property of the LOCATION, and
+  /// hard-iron distortion, a property of THIS phone in THIS mount. Drive to a
+  /// different region overnight, or re-seat the phone, and the number is wrong
+  /// — and neither is detectable at launch. Restoring it and going straight to
+  /// TRUE would be the same false assertion this class exists to prevent, with
+  /// an extra step.
+  ///
+  /// So [_agreed] starts false and the residual starts at DISBELIEF rather than
+  /// at zero. Seeding it at zero would let a single agreeing-looking sample
+  /// rubber-stamp a stale offset; starting at the release threshold means the
+  /// residual has to be pulled down by observations that actually agree. That
+  /// costs about four of them, against twenty from scratch, which is the whole
+  /// point of persisting. An offset that contradicts the car is never confirmed
+  /// and simply relearns.
+  void restore({required double offsetDeg, required int samples}) {
+    if (!offsetDeg.isFinite || samples <= 0) return;
+    _offsetDeg = _wrapSigned(offsetDeg);
+    // At or above the bar, so agreement is judged on the very first new
+    // observation rather than after another twenty.
+    _samples = samples < AppConstants.headingCalibrationSamples
+        ? AppConstants.headingCalibrationSamples
+        : samples;
+    _residualDeg = AppConstants.headingCalibrationDisagreeDeg;
+    _agreed = false;
+  }
+
   void reset() {
     _offsetDeg = 0;
     _samples = 0;

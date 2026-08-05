@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/di/providers.dart';
 import '../../../gps/presentation/providers/gps_providers.dart';
 import '../../../settings/presentation/providers/settings_providers.dart';
 import '../../data/compass_service.dart';
+import '../../data/heading_calibration_repository.dart';
 import '../../domain/heading_calibration.dart';
 
 final compassServiceProvider = Provider<CompassService>((ref) {
@@ -22,8 +24,27 @@ final magneticHeadingProvider = StreamProvider<double>((ref) {
 /// moving on a good fix the difference between it and the magnetometer IS the
 /// correction — declination and this car's own hard-iron distortion together,
 /// in one number, with no magnetic model and no network.
+final headingCalibrationRepositoryProvider =
+    Provider<HeadingCalibrationRepository>(
+        (ref) => HeadingCalibrationRepository(ref.watch(storageProvider)));
+
 final headingCalibrationProvider = Provider<HeadingCalibration>((ref) {
+  final repo = ref.watch(headingCalibrationRepositoryProvider);
   final cal = HeadingCalibration();
+
+  // Carry the previous session's offset over. `restore` deliberately does not
+  // carry the VERDICT with it — see its doc. Without this the app relearned
+  // from zero on every cold start, and learning needs 20 observations above
+  // 18 km/h on a fix better than 8 m.
+  final saved = repo.load();
+  if (saved != null) {
+    cal.restore(offsetDeg: saved.offsetDeg, samples: saved.samples);
+  }
+
+  // Written on the transition INTO learned rather than on every observation:
+  // one Hive write per session instead of one per fix, and an unlearned offset
+  // is not worth keeping anyway.
+  var wasLearned = cal.isLearned;
 
   // Fold in pairs as they arrive. `listen`, not `watch`: this provider must
   // keep its learned state rather than being rebuilt on every fix.
@@ -32,12 +53,18 @@ final headingCalibrationProvider = Provider<HeadingCalibration>((ref) {
     if (gps == null) return;
     final mag = ref.read(magneticHeadingProvider).valueOrNull;
     if (mag == null) return;
-    cal.observe(
+    if (!cal.observe(
       gpsCourseDeg: gps.headingDeg,
       magneticDeg: mag,
       speedMps: gps.smoothedSpeedMps,
       accuracyM: gps.accuracyM,
-    );
+    )) {
+      return;
+    }
+
+    final learned = cal.isLearned;
+    if (learned && !wasLearned) repo.save(cal);
+    wasLearned = learned;
   });
 
   return cal;
