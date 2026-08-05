@@ -31,6 +31,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'package:irallymeter/core/storage/storage_service.dart';
 import 'package:irallymeter/main.dart' as app;
 
 void main() {
@@ -77,7 +78,15 @@ void main() {
         (icon: Icons.settings_outlined, marker: 'SETTINGS'),
       ]) {
         final button = find.byIcon(probe.icon);
-        if (button.evaluate().isEmpty) continue; // icon set may differ
+        // FAIL, do not skip. This used to `continue` when the icon was
+        // missing, which made the test vacuously pass: remove a nav button
+        // and the suite still reported that every route is reachable. That is
+        // the same unfalsifiable check C2 and C7 already cost us, reintroduced
+        // in the test written to prevent it.
+        expect(button, findsWidgets,
+            reason: 'the ${probe.marker} nav button is gone, so this route is '
+                'unreachable — that is the failure this test exists to catch, '
+                'not a reason to skip it');
         await tester.tap(button.first);
         expect(await _waitFor(tester, find.text(probe.marker)), isTrue,
             reason: '${probe.marker} did not open');
@@ -137,16 +146,42 @@ void main() {
       final before = tester.widget<SwitchListTile>(toggle.first).value;
       await tester.tap(toggle.first);
       await _settle(tester);
-      final after = tester.widget<SwitchListTile>(toggle.first).value;
 
-      expect(after, isNot(equals(before)), reason: 'the switch did not move');
+      expect(tester.widget<SwitchListTile>(toggle.first).value,
+          isNot(equals(before)),
+          reason: 'the switch did not move');
 
-      // Put it back so the next run starts from the same place. An integration
-      // suite that leaves state behind fails differently on its second run,
-      // which is the hardest kind of flake to read.
+      // READ IT BACK OFF DISK. Asserting on the same live SwitchListTile
+      // proves only that a widget rebuilt — if the Hive write silently failed
+      // or became a no-op, that assertion still passes and the test would be
+      // claiming persistence it never observed.
+      //
+      // Reading the stored key is what closes that. Same box, same isolate as
+      // the running app, so this is the value the next cold start will read.
+      // (Booting a second app.main() inside one test was tried first and
+      // destabilised the runner — the storage read is both simpler and a
+      // tighter assertion, because it names the key rather than trusting the
+      // UI to reflect it.)
+      final storage = await StorageService.init();
+      // The fallback is deliberately a value the app never stores: if the key
+      // was never written, this reads 'unwritten' and the assertion fails,
+      // which is exactly the silent-no-op case being guarded against.
+      final storedAfter =
+          storage.read<String>(StorageKeys.displayMode, 'unwritten');
+      expect(storedAfter, anyOf('day', 'night'),
+          reason: 'nothing was written, so nothing would survive a restart');
+
+      // Put it back and confirm the RESTORE persists too, so the next run
+      // starts where it found things. A suite that leaves state behind fails
+      // differently on its second run, the hardest flake to read.
       await tester.tap(toggle.first);
       await _settle(tester);
-      expect(tester.widget<SwitchListTile>(toggle.first).value, equals(before));
+      expect(tester.widget<SwitchListTile>(toggle.first).value, equals(before),
+          reason: 'the switch did not come back');
+      expect(storage.read<String>(StorageKeys.displayMode, 'unwritten'),
+          isNot(equals(storedAfter)),
+          reason: 'the restore was not written, so the device is left in a '
+              'different state than it was found in');
     });
   });
 
