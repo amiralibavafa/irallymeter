@@ -1,0 +1,24 @@
+# Generated replay fixtures.
+#
+# `tool/generate_fixtures.dart` writes these, and they are pure machine output:
+# one JSON object per GPS/motion sample, tens of thousands of lines of
+# {"lat":35.77,"lon":51.38,...}. They are committed because the §19 accuracy
+# tests need identical input on every machine, not because anyone reads them.
+#
+# Left unmarked they swamp everything. The SPEC-v2 audit branch is 52,524
+# insertions against main, and 39,987 of those — 76 % — are these files, against
+# 3,592 lines of actual lib/ code. `long_drive_500km.jsonl` alone is 20,002
+# lines. A Codex review of that branch spent over an hour wading through sample
+# data to reach the code, and GitHub renders the same wall in every PR.
+#
+#   linguist-generated  collapses them in PR diffs and excludes them from the
+#                       repo's language stats
+#   -diff               makes git report "Binary files differ" instead of
+#                       printing every line, which is what review tooling and
+#                       `git log -p` actually want here
+#
+# Nothing is lost by not diffing them: they are deterministic output of a
+# committed generator, so `dart run tool/generate_fixtures.dart` reproduces any
+# version exactly. If a fixture ever needs to CHANGE meaningfully, change the
+# generator and say so in the commit message — that diff is the reviewable one.
+test/fixtures/*.jsonl linguist-generated=true -diff

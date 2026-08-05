@@ -30,6 +30,12 @@ dart run tool/generate_fixtures.dart   # regenerates test/fixtures/*.jsonl
 
 There is **no `npm test`**. There is no CI in this repo yet.
 
+`test/fixtures/*.jsonl` are marked `linguist-generated -diff` in `.gitattributes`
+and show as binary in diffs ON PURPOSE. They are deterministic output of
+`tool/generate_fixtures.dart` and are 76 % of this branch's diff — 39,987 lines
+against 3,592 lines of real `lib/` code. **Do not review them.** If a fixture
+must change meaningfully, change the generator; that diff is the reviewable one.
+
 Current baseline: **310 pass / 1 skip / 0 fail**.
 
 ---
