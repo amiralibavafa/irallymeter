@@ -54,6 +54,19 @@ Options ranked in `docs/IRAN-CONSTRAINTS.md` §4. My recommendation: keep
 `flutter_map`, change only the source, most likely Neshan or Map.ir with a
 side-loaded pack. **Your call.**
 
+**The map also loads slowly, and the cause is the same decision.** Saam reported
+it and it is not just the emulator: there is **no tile cache of any kind**.
+`flutter_map`'s default `NetworkTileProvider` keeps tiles in Flutter's
+in-memory image cache only, with nothing on disk, so **every app launch and
+every pan away and back refetches every tile over the network**. On Iranian
+mobile data that is both slow and expensive in quota.
+
+We did **not** add a caching provider, for two reasons. It needs new
+dependencies, and dependency changes are deliberately held for a separate
+branch after merge (P9). More importantly a cache is built against a specific
+provider's URL scheme and terms, so building one for OSM before you have chosen
+the source risks throwing it away. **Answer B2 and the cache follows from it.**
+
 **B3 — LOCALISATION: do Iranian rally crews want Persian-Indic digits?**
 There is currently no localisation at all — no `supportedLocales`, no RTL. This
 is the one question I genuinely cannot answer: rally road books and tripmeters
