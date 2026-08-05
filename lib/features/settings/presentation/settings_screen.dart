@@ -40,72 +40,79 @@ class SettingsScreen extends ConsumerWidget {
         ),
         backgroundColor: AppColors.base,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const _SectionTitle('DISPLAY'),
-          _SwitchRow(
-            label: 'Night mode',
-            value: settings.isNight,
-            onChanged: (_) => ctrl.toggleDisplayMode(),
-          ),
-          _ChoiceRow(
-            label: 'Speed unit',
-            value: settings.speedUnit.label,
-            onTap: ctrl.toggleSpeedUnit,
-          ),
-          const _SectionTitle('COMPASS'),
-          _SwitchRow(
-            label: 'Use true north',
-            value: settings.useTrueNorth,
-            onChanged: (_) => ctrl.toggleTrueNorth(),
-          ),
-          const _SectionTitle('PERMISSIONS'),
-          const _LocationPermissionRow(),
-          const _SectionTitle('CALIBRATION'),
-          _CalibrationCard(),
-          const _SectionTitle('TRIP'),
-          _DangerRow(
-            label: 'Reset odometer',
-            onTap: () => ref.read(tripProvider.notifier).resetOdometer(),
-          ),
-          // SPEC-v2 §15.3: the automatic record that replaced the manual
-          // TUNNEL START / END buttons. Not debug — this is the co-driver's
-          // read-back of every stretch the app had to estimate.
-          const _SectionTitle('ESTIMATED SECTIONS'),
-          _ChoiceRow(
-            label: 'Section log',
-            value: '${ref.watch(estimatedSectionsProvider).length} recorded',
-            onTap: () => context.push('/sections'),
-          ),
-          const _SectionTitle('ROUTE SESSIONS'),
-          _SessionsSection(),
-          // SPEC-v2 §20.1's debug-menu option. Debug builds only — this swaps
-          // the GPS and motion sources under the whole app, and a rally
-          // computer that can be talked into inventing its own position is not
-          // a rally computer. kDebugMode is a const, so this whole subtree is
-          // compiled out of a release build rather than merely hidden.
-          if (kDebugMode) ...[
-            const _SectionTitle('DEBUG'),
+      // The AppBar insets the TOP only. In landscape on a mount the cutout
+      // is on a side edge and the gesture bar is at the bottom, so the
+      // scrolling body needs those three.
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const _SectionTitle('DISPLAY'),
             _SwitchRow(
-              label: 'Simulated drive (tunnel)',
-              value: ref.watch(simulationEnabledProvider),
-              onChanged: (v) =>
-                  ref.read(simulationEnabledProvider.notifier).state = v,
+              label: 'Night mode',
+              value: settings.isNight,
+              onChanged: (_) => ctrl.toggleDisplayMode(),
             ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
-              child: Text(
-                'Drives the REAL Niayesh Tunnel, Tehran (6 658 m) west to east '
-                'at 60 km/h: 60 s approach, then 399 s of genuine GPS silence '
-                'between the portals, then 60 s out the far side. Open the map '
-                'to watch it enter one portal and leave the other. Trip should '
-                'gain about 6.66 km through the dark.',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+            _ChoiceRow(
+              label: 'Speed unit',
+              value: settings.speedUnit.label,
+              onTap: ctrl.toggleSpeedUnit,
+            ),
+            const _SectionTitle('COMPASS'),
+            _SwitchRow(
+              label: 'Use true north',
+              value: settings.useTrueNorth,
+              onChanged: (_) => ctrl.toggleTrueNorth(),
+            ),
+            const _SectionTitle('PERMISSIONS'),
+            const _LocationPermissionRow(),
+            const _SectionTitle('CALIBRATION'),
+            _CalibrationCard(),
+            const _SectionTitle('TRIP'),
+            _DangerRow(
+              label: 'Reset odometer',
+              onTap: () => ref.read(tripProvider.notifier).resetOdometer(),
+            ),
+            // SPEC-v2 §15.3: the automatic record that replaced the manual
+            // TUNNEL START / END buttons. Not debug — this is the co-driver's
+            // read-back of every stretch the app had to estimate.
+            const _SectionTitle('ESTIMATED SECTIONS'),
+            _ChoiceRow(
+              label: 'Section log',
+              value: '${ref.watch(estimatedSectionsProvider).length} recorded',
+              onTap: () => context.push('/sections'),
+            ),
+            const _SectionTitle('ROUTE SESSIONS'),
+            _SessionsSection(),
+            // SPEC-v2 §20.1's debug-menu option. Debug builds only — this swaps
+            // the GPS and motion sources under the whole app, and a rally
+            // computer that can be talked into inventing its own position is not
+            // a rally computer. kDebugMode is a const, so this whole subtree is
+            // compiled out of a release build rather than merely hidden.
+            if (kDebugMode) ...[
+              const _SectionTitle('DEBUG'),
+              _SwitchRow(
+                label: 'Simulated drive (tunnel)',
+                value: ref.watch(simulationEnabledProvider),
+                onChanged: (v) =>
+                    ref.read(simulationEnabledProvider.notifier).state = v,
               ),
-            ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
+                child: Text(
+                  'Drives the REAL Niayesh Tunnel, Tehran (6 658 m) west to east '
+                  'at 60 km/h: 60 s approach, then 399 s of genuine GPS silence '
+                  'between the portals, then 60 s out the far side. Open the map '
+                  'to watch it enter one portal and leave the other. Trip should '
+                  'gain about 6.66 km through the dark.',
+                  style:
+                      TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -132,9 +139,12 @@ class _CalibrationCard extends ConsumerWidget {
             children: [
               Text(factor.toStringAsFixed(4),
                   style: const TextStyle(
-                      color: AppColors.textPrimary, fontSize: 34, fontWeight: FontWeight.w700)),
+                      color: AppColors.textPrimary,
+                      fontSize: 34,
+                      fontWeight: FontWeight.w700)),
               Text('${err >= 0 ? '+' : ''}${err.toStringAsFixed(2)}%',
-                  style: TextStyle(color: err.abs() < 0.01 ? AppColors.ok : AppColors.warn)),
+                  style: TextStyle(
+                      color: err.abs() < 0.01 ? AppColors.ok : AppColors.warn)),
             ],
           ),
           const SizedBox(height: 12),
@@ -164,7 +174,8 @@ class _CalibrationCard extends ConsumerWidget {
   }
 
   /// Drive a known distance, then enter the reference + what the meter read.
-  Future<void> _calibrateByReference(BuildContext context, WidgetRef ref) async {
+  Future<void> _calibrateByReference(
+      BuildContext context, WidgetRef ref) async {
     final refCtl = TextEditingController();
     final measCtl = TextEditingController(
       text: (ref.read(tripAProvider) / 1000).toStringAsFixed(3),
@@ -174,24 +185,31 @@ class _CalibrationCard extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text('Calibrate', style: TextStyle(color: AppColors.textPrimary)),
+        title: const Text('Calibrate',
+            style: TextStyle(color: AppColors.textPrimary)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: refCtl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Reference distance (km)'),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration:
+                  const InputDecoration(labelText: 'Reference distance (km)'),
             ),
             TextField(
               controller: measCtl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Meter measured (km)'),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration:
+                  const InputDecoration(labelText: 'Meter measured (km)'),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('CANCEL')),
           TextButton(
             onPressed: () {
               final refKm = double.tryParse(refCtl.text);
@@ -234,7 +252,8 @@ class _Step extends StatelessWidget {
             side: const BorderSide(color: AppColors.divider),
             padding: const EdgeInsets.symmetric(vertical: 14),
           ),
-          child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+          child:
+              Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
         ),
       ),
     );
@@ -253,19 +272,26 @@ class _SessionsSection extends ConsumerWidget {
             final imported = await ref.read(gpxImportProvider)();
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(imported == null ? 'Import cancelled' : 'Imported ${imported.name}')),
+                SnackBar(
+                    content: Text(imported == null
+                        ? 'Import cancelled'
+                        : 'Imported ${imported.name}')),
               );
             }
           },
           icon: const Icon(Icons.upload_file),
           label: const Text('IMPORT GPX'),
-          style: OutlinedButton.styleFrom(foregroundColor: AppColors.info, side: const BorderSide(color: AppColors.info)),
+          style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.info,
+              side: const BorderSide(color: AppColors.info)),
         ),
         const SizedBox(height: 8),
         if (sessions.isEmpty)
           const Padding(
             padding: EdgeInsets.all(16),
-            child: Center(child: Text('No saved sessions', style: TextStyle(color: AppColors.textDim))),
+            child: Center(
+                child: Text('No saved sessions',
+                    style: TextStyle(color: AppColors.textDim))),
           )
         else
           ...sessions.map((s) => _SessionTile(session: s)),
@@ -287,8 +313,11 @@ class _SessionTile extends ConsumerWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: ListTile(
-        title: Text(session.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
+        title: Text(session.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
         subtitle: Text(
           '${session.points.length} pts · ${Formatters.distance(session.distanceMeters, metric: true)}',
           style: const TextStyle(color: AppColors.textSecondary),
@@ -298,7 +327,8 @@ class _SessionTile extends ConsumerWidget {
           children: [
             IconButton(
               icon: const Icon(Icons.ios_share, color: AppColors.info),
-              onPressed: () => ref.read(gpxFileServiceProvider).exportAndShare(session),
+              onPressed: () =>
+                  ref.read(gpxFileServiceProvider).exportAndShare(session),
             ),
             IconButton(
               icon: const Icon(Icons.delete_outline, color: AppColors.danger),
@@ -323,7 +353,10 @@ class _SectionTitle extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(4, 22, 4, 10),
         child: Text(text,
             style: const TextStyle(
-                color: AppColors.accent, fontWeight: FontWeight.w800, letterSpacing: 2, fontSize: 13)),
+                color: AppColors.accent,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 2,
+                fontSize: 13)),
       );
 }
 
@@ -418,7 +451,8 @@ class _LocationPermissionRowState
 }
 
 class _SwitchRow extends StatelessWidget {
-  const _SwitchRow({required this.label, required this.value, required this.onChanged});
+  const _SwitchRow(
+      {required this.label, required this.value, required this.onChanged});
   final String label;
   final bool value;
   final ValueChanged<bool> onChanged;
@@ -426,9 +460,11 @@ class _SwitchRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(
+          color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
       child: SwitchListTile(
-        title: Text(label, style: const TextStyle(color: AppColors.textPrimary)),
+        title:
+            Text(label, style: const TextStyle(color: AppColors.textPrimary)),
         value: value,
         activeColor: AppColors.accent,
         onChanged: onChanged,
@@ -438,7 +474,8 @@ class _SwitchRow extends StatelessWidget {
 }
 
 class _ChoiceRow extends StatelessWidget {
-  const _ChoiceRow({required this.label, required this.value, required this.onTap});
+  const _ChoiceRow(
+      {required this.label, required this.value, required this.onTap});
   final String label;
   final String value;
   final VoidCallback onTap;
@@ -446,10 +483,14 @@ class _ChoiceRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(
+          color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
       child: ListTile(
-        title: Text(label, style: const TextStyle(color: AppColors.textPrimary)),
-        trailing: Text(value, style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700)),
+        title:
+            Text(label, style: const TextStyle(color: AppColors.textPrimary)),
+        trailing: Text(value,
+            style: const TextStyle(
+                color: AppColors.accent, fontWeight: FontWeight.w700)),
         onTap: onTap,
       ),
     );
@@ -464,7 +505,8 @@ class _DangerRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(
+          color: AppColors.surface, borderRadius: BorderRadius.circular(8)),
       child: ListTile(
         title: Text(label, style: const TextStyle(color: AppColors.danger)),
         trailing: const Icon(Icons.restart_alt, color: AppColors.danger),

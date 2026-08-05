@@ -47,19 +47,25 @@ class SectionLogScreen extends ConsumerWidget {
           ],
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          const _HealthPanel(),
-          const SizedBox(height: 8),
-          if (sections.isEmpty)
-            const _Empty()
-          else
-            // Newest first: the section a co-driver questions is the one they
-            // just drove through.
-            for (var i = sections.length - 1; i >= 0; i--)
-              _SectionCard(section: sections[i], index: i + 1),
-        ],
+      // The AppBar insets the TOP only. In landscape on a mount the cutout
+      // is on a side edge and the gesture bar is at the bottom, so the
+      // scrolling body needs those three.
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            const _HealthPanel(),
+            const SizedBox(height: 8),
+            if (sections.isEmpty)
+              const _Empty()
+            else
+              // Newest first: the section a co-driver questions is the one they
+              // just drove through.
+              for (var i = sections.length - 1; i >= 0; i--)
+                _SectionCard(section: sections[i], index: i + 1),
+          ],
+        ),
       ),
     );
   }
@@ -173,9 +179,7 @@ class _SectionCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(10),
-        border: flagged
-            ? Border.all(color: AppColors.warn, width: 1.5)
-            : null,
+        border: flagged ? Border.all(color: AppColors.warn, width: 1.5) : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -224,9 +228,8 @@ class _SectionCard extends StatelessWidget {
                 value: section.uncorrected
                     ? '—'
                     : '+${section.correctionMeters.toStringAsFixed(0)} m',
-                hint: section.uncorrected
-                    ? 'nothing provable on recovery'
-                    : null,
+                hint:
+                    section.uncorrected ? 'nothing provable on recovery' : null,
               ),
             ],
           ),

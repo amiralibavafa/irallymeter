@@ -36,15 +36,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// one that states the situation and stays put.
   bool _tilesFailed = false;
 
-
-
   @override
   Widget build(BuildContext context) {
     final gps = ref.watch(gpsStateProvider).valueOrNull;
     final recording = ref.watch(routeRecorderProvider);
 
     final hasPos = gps != null && gps.hasFix;
-    final pos = hasPos ? LatLng(gps.latitude, gps.longitude) : const LatLng(0, 0);
+    final pos =
+        hasPos ? LatLng(gps.latitude, gps.longitude) : const LatLng(0, 0);
 
     // Keep the camera on the vehicle when following.
     if (_follow && hasPos) {
@@ -71,6 +70,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ),
         backgroundColor: AppColors.base,
       ),
+      // SafeArea wraps the OVERLAYS ONLY, not the map.
+      //
+      // Wrapping the whole body would letterbox the map itself, which is wrong:
+      // the tiles should run edge to edge behind a cutout. What must not sit
+      // under a notch or a gesture bar are the CONTROLS — and on a windscreen
+      // mount this runs landscape, where the cutout is on a SIDE edge, exactly
+      // where the record button and the LAT/LON readout live.
+      //
+      // So the map fills the Stack and a SafeArea inside it insets everything
+      // positioned on top.
       body: Stack(
         children: [
           FlutterMap(
@@ -119,7 +128,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               if (track.length > 1)
                 PolylineLayer(
                   polylines: [
-                    Polyline(points: track, strokeWidth: 5, color: AppColors.accent),
+                    Polyline(
+                        points: track, strokeWidth: 5, color: AppColors.accent),
                   ],
                 ),
               if (hasPos)
@@ -130,89 +140,98 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       width: 44,
                       height: 44,
                       child: _HeadingMarker(
-                        headingDeg: gps.headingDeg.isFinite ? gps.headingDeg : 0,
+                        headingDeg:
+                            gps.headingDeg.isFinite ? gps.headingDeg : 0,
                       ),
                     ),
                   ],
                 ),
             ],
           ),
-          // Sits ABOVE the coordinate bar and INSIDE the same insets it uses.
-          //
-          // Every other edge of this map is already occupied: REC badge top
-          // left, compass top right, FAB column bottom right. A banner at the
-          // top ran under the compass; one spanning the full width at the
-          // bottom ran under the FABs. `right: 84` is the coordinate bar's own
-          // clearance for that FAB column, so matching it is the fix that
-          // stays correct if the buttons move.
-          if (_tilesFailed)
-            Positioned(
-              left: 12,
-              right: 84,
-              bottom: 64,
-              child: Center(
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.warn),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.cloud_off, color: AppColors.warn, size: 18),
-                      SizedBox(width: 10),
-                      // Flexible so a narrow phone wraps the sentence instead
-                      // of clipping it. A warning that loses its second half
-                      // is worse than no warning, because the half that
-                      // survives here is the alarming one.
-                      Flexible(
-                        child: Text(
-                          'MAP TILES UNAVAILABLE  ·  POSITION STILL TRACKING',
-                          style: TextStyle(
-                            color: AppColors.warn,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
+          // Everything below is an overlay and is inset by this SafeArea.
+          // Positioned children need a bounded parent, so the SafeArea holds
+          // its own Stack rather than being dropped into the outer one.
+          SafeArea(
+            child: Stack(children: [
+              // Sits ABOVE the coordinate bar and INSIDE the same insets it uses.
+              //
+              // Every other edge of this map is already occupied: REC badge top
+              // left, compass top right, FAB column bottom right. A banner at the
+              // top ran under the compass; one spanning the full width at the
+              // bottom ran under the FABs. `right: 84` is the coordinate bar's own
+              // clearance for that FAB column, so matching it is the fix that
+              // stays correct if the buttons move.
+              if (_tilesFailed)
+                Positioned(
+                  left: 12,
+                  right: 84,
+                  bottom: 64,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.warn),
                       ),
-                    ],
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.cloud_off,
+                              color: AppColors.warn, size: 18),
+                          SizedBox(width: 10),
+                          // Flexible so a narrow phone wraps the sentence instead
+                          // of clipping it. A warning that loses its second half
+                          // is worse than no warning, because the half that
+                          // survives here is the alarming one.
+                          Flexible(
+                            child: Text(
+                              'MAP TILES UNAVAILABLE  ·  POSITION STILL TRACKING',
+                              style: TextStyle(
+                                color: AppColors.warn,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
+                ),
+              if (recording.recording)
+                const Positioned(top: 12, left: 12, child: _RecBadge()),
+              // CAP heading instrument, relocated here from the home cluster.
+              const Positioned(
+                top: 12,
+                right: 12,
+                child: SizedBox(width: 200, child: HeadingDisplay()),
+              ),
+              // Live position readout pinned to the bottom of the map.
+              const Positioned(
+                left: 12,
+                right: 84,
+                bottom: 12,
+                child: _CoordinateBar(),
+              ),
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: Column(
+                  children: [
+                    _MapFab(
+                      icon: _follow ? Icons.gps_fixed : Icons.gps_not_fixed,
+                      color: _follow ? AppColors.ok : AppColors.textSecondary,
+                      onTap: () => setState(() => _follow = true),
+                    ),
+                    const SizedBox(height: 10),
+                    _RecordButton(),
+                  ],
                 ),
               ),
-            ),
-          if (recording.recording)
-            const Positioned(top: 12, left: 12, child: _RecBadge()),
-          // CAP heading instrument, relocated here from the home cluster.
-          const Positioned(
-            top: 12,
-            right: 12,
-            child: SizedBox(width: 200, child: HeadingDisplay()),
-          ),
-          // Live position readout pinned to the bottom of the map.
-          const Positioned(
-            left: 12,
-            right: 84,
-            bottom: 12,
-            child: _CoordinateBar(),
-          ),
-          Positioned(
-            right: 12,
-            bottom: 12,
-            child: Column(
-              children: [
-                _MapFab(
-                  icon: _follow ? Icons.gps_fixed : Icons.gps_not_fixed,
-                  color: _follow ? AppColors.ok : AppColors.textSecondary,
-                  onTap: () => setState(() => _follow = true),
-                ),
-                const SizedBox(height: 10),
-                _RecordButton(),
-              ],
-            ),
+            ]),
           ),
         ],
       ),
@@ -236,7 +255,8 @@ class _HeadingMarker extends StatelessWidget {
 class _RecordButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final recording = ref.watch(routeRecorderProvider.select((s) => s.recording));
+    final recording =
+        ref.watch(routeRecorderProvider.select((s) => s.recording));
     final recorder = ref.read(routeRecorderProvider.notifier);
     return _MapFab(
       icon: recording ? Icons.stop : Icons.fiber_manual_record,
@@ -259,7 +279,8 @@ class _RecordButton extends ConsumerWidget {
 }
 
 class _MapFab extends StatelessWidget {
-  const _MapFab({required this.icon, required this.onTap, this.color, this.background});
+  const _MapFab(
+      {required this.icon, required this.onTap, this.color, this.background});
   final IconData icon;
   final VoidCallback onTap;
   final Color? color;
@@ -305,8 +326,12 @@ class _CoordinateBar extends ConsumerWidget {
       ),
       child: Row(
         children: [
-          Expanded(child: _CoordField(label: 'LAT', value: fmt(gps?.latitude ?? 0, 5))),
-          Expanded(child: _CoordField(label: 'LON', value: fmt(gps?.longitude ?? 0, 5))),
+          Expanded(
+              child:
+                  _CoordField(label: 'LAT', value: fmt(gps?.latitude ?? 0, 5))),
+          Expanded(
+              child: _CoordField(
+                  label: 'LON', value: fmt(gps?.longitude ?? 0, 5))),
           Expanded(
             child: _CoordField(
               label: 'ALT',
@@ -371,7 +396,9 @@ class _RecBadge extends StatelessWidget {
         children: [
           Icon(Icons.fiber_manual_record, color: Colors.white, size: 14),
           SizedBox(width: 6),
-          Text('REC', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+          Text('REC',
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
         ],
       ),
     );
