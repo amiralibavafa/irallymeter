@@ -80,8 +80,14 @@ class AverageSpeedDisplay extends ConsumerWidget {
           // sixth grid tile. Both are named on screen, which is what §8 asks
           // for; a co-driver who cannot tell which average they are reading is
           // the failure this guards against.
+          //
+          // Spelled "MOVING" with its unit, not "MOV". The abbreviation shipped
+          // for about ten minutes and the first person to see it asked what it
+          // meant, which is the whole failure §8 is warning about happening in
+          // miniature. Four saved characters are not worth an unreadable
+          // instrument.
           Text(
-            'MOV $moving',
+            'MOVING $moving ${unit.label}',
             style: TextStyle(
               color: colors.secondary,
               fontSize: 13,

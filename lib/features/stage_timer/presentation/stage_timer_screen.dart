@@ -53,6 +53,15 @@ class StageTimerScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+              // The countdown target is only adjustable while stopped: changing
+              // it mid-run would move the finish line under a crew already
+              // counting down to it.
+              if (isCountdown)
+                _CountdownAdjust(
+                  target: state.countdownTarget,
+                  enabled: !state.running,
+                  onChanged: ctrl.setCountdownTarget,
+                ),
               _Controls(running: state.running, ctrl: ctrl),
               const SizedBox(height: 12),
               Expanded(flex: 2, child: _Splits(splits: state.splits)),
@@ -99,6 +108,94 @@ class _ModeToggle extends StatelessWidget {
       const SizedBox(width: 8),
       seg('COUNTDOWN', TimerMode.countdown),
     ]);
+  }
+}
+
+/// Sets the countdown target. `setCountdownTarget` existed on the controller
+/// from the start but nothing ever called it, so the countdown was frozen at
+/// its 1:00 default and the mode was effectively a fixed one-minute timer.
+///
+/// Stepped buttons rather than a wheel picker: this is used in a moving car
+/// with gloves on, where a scroll picker is unusable. The steps are the ones a
+/// road book actually uses, minutes for the start interval and ten seconds for
+/// trimming it.
+class _CountdownAdjust extends StatelessWidget {
+  const _CountdownAdjust({
+    required this.target,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final Duration target;
+  final bool enabled;
+  final ValueChanged<Duration> onChanged;
+
+  static const _min = Duration(seconds: 10);
+  static const _max = Duration(hours: 1);
+
+  @override
+  Widget build(BuildContext context) {
+    // Clamped so the target can never reach zero or negative, which would make
+    // the countdown finish the instant it started.
+    void step(Duration by) {
+      final next = target + by;
+      onChanged(next < _min ? _min : (next > _max ? _max : next));
+    }
+
+    Widget chip(String label, Duration by) {
+      final atLimit = by.isNegative ? target <= _min : target >= _max;
+      final on = enabled && !atLimit;
+      return Expanded(
+        child: GestureDetector(
+          onTap: on ? () => step(by) : null,
+          child: Container(
+            height: 48,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: on ? AppColors.accent : AppColors.divider,
+              ),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: on ? AppColors.accent : AppColors.textDim,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        children: [
+          Text(
+            enabled
+                ? 'TARGET ${Formatters.stopwatch(target)}'
+                : 'TARGET ${Formatters.stopwatch(target)} · LOCKED WHILE RUNNING',
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(children: [
+            chip('-1:00', const Duration(minutes: -1)),
+            chip('-0:10', const Duration(seconds: -10)),
+            chip('+0:10', const Duration(seconds: 10)),
+            chip('+1:00', const Duration(minutes: 1)),
+          ]),
+        ],
+      ),
+    );
   }
 }
 
