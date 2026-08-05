@@ -141,6 +141,45 @@ void main() {
           reason: 'the ~200 m blackout chord must not be re-integrated; only '
               'the small post-exit step and any correction may appear');
     });
+
+    test('08b · a receiver that reports 0.0 for Doppler still seeds the tunnel',
+        () {
+      // THE FIX THIS PINS is `[SA-V3 11]`, which shipped reasoned and compiled
+      // but unproven. This is that proof.
+      //
+      // Some receivers do not support Doppler and report `0.0` rather than null
+      // or NaN — the Android emulator and, per `gps_providers.dart`, some real
+      // chips. `hasValidDopplerSpeed` calls 0.0 VALID (it is finite and
+      // non-negative), so the emit site used to publish 0.0 as the speed of a
+      // pair whose positions had just moved 22 m in a second.
+      //
+      // On open road that costs nothing: distance comes from the positions. It
+      // is the TUNNEL that fails, because `DistanceEngine` copies the emitted
+      // speed into `_gpsSpeedMps` and SEEDS the estimator with it. Anchored at
+      // zero, the estimate accrues nothing for the tunnel's whole length while
+      // the cluster shows a confident 0 km/h — so on those devices the app
+      // measured the open road correctly and then silently stopped measuring in
+      // the one place this whole revision exists to handle.
+      //
+      // Every fix below carries `speed: 0` — the harness default is not relied
+      // on, so a change to that default cannot quietly disarm this test.
+      final h = _Harness()
+        ..gps(lat: 46.0, lon: 8.0, speed: 0, ms: 0)
+        ..gps(lat: 46.0002, lon: 8.0, speed: 0, ms: 1000) // ~22 m in 1 s
+        ..gps(lat: 46.0004, lon: 8.0, speed: 0, ms: 2000)
+        ..tick(ms: 5100); // > 3 s since the last healthy fix → Tunnel Mode
+
+      expect(h.state.tunnelMode, isTrue, reason: 'precondition');
+      expect(h.state.speedMps, closeTo(22, 3),
+          reason: 'the entry speed must come from the positions when the '
+              'receiver reports no usable Doppler; a 0.0 here is the bug');
+
+      h.coast(fromMs: 5100, toMs: 7100); // 2 s at ~22 m/s ≈ 44 m
+
+      expect(h.state.tunnelMeters, greaterThan(30),
+          reason: 'seeded at zero the estimator accrues NOTHING, which is the '
+              'failure: a whole tunnel measured as no distance at all');
+    });
   });
 
   // ===========================================================================
