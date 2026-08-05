@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>iRallyMeter · Audit and Hardening Report</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    font: 10.5pt/1.5 -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color: #16161a; margin: 0;
+  }
+  h1 { font-size: 21pt; margin: 0 0 2mm; letter-spacing: -.3px; }
+  .sub { color: #6b6b76; font-size: 10pt; margin: 0 0 7mm; }
+  h2 {
+    font-size: 12.5pt; margin: 8mm 0 2.5mm; padding-bottom: 1.5mm;
+    border-bottom: 2px solid #FF6B00; page-break-after: avoid;
+  }
+  h3 { font-size: 10.5pt; margin: 4.5mm 0 1mm; page-break-after: avoid; }
+  p { margin: 0 0 2.5mm; }
+  ul, ol { margin: 0 0 3mm; padding-left: 5mm; }
+  li { margin-bottom: 1.5mm; }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 3mm; font-size: 9.5pt; }
+  th, td { border: 1px solid #d8d8de; padding: 1.8mm 2.2mm; text-align: left; vertical-align: top; }
+  th { background: #f4f4f6; font-weight: 600; }
+  code { font-family: "SF Mono", Menlo, monospace; font-size: 9pt; background: #f4f4f6; padding: 0 1mm; border-radius: 2px; }
+  .box { border-left: 3px solid #FF6B00; background: #fff8f2; padding: 3mm 4mm; margin: 0 0 4mm; }
+  .warn { border-left-color: #d92c20; background: #fff5f4; }
+  .ok { border-left-color: #1a9c4c; background: #f2fbf5; }
+  .num { font-weight: 700; color: #d92c20; }
+  .good { font-weight: 700; color: #1a9c4c; }
+  .muted { color: #6b6b76; font-size: 9.5pt; }
+  .avoid { page-break-inside: avoid; }
+  .pb { page-break-before: always; }
+  .ba { font-size: 9.5pt; }
+  .ba dt { font-weight: 600; margin-top: 2mm; }
+  .ba dd { margin: 0 0 1mm 0; padding-left: 0; }
+  .tag { display: inline-block; font-size: 8pt; font-weight: 700; letter-spacing: .4px;
+         padding: 0.5mm 1.6mm; border-radius: 2px; vertical-align: 1px; }
+  .t-red { background: #fdeceb; color: #a81d13; }
+  .t-amber { background: #fff3e0; color: #9a5400; }
+  .t-green { background: #e9f7ee; color: #12703a; }
+  ol.q { padding-left: 6mm; }
+  ol.q > li { margin-bottom: 3mm; }
+</style>
+</head>
+<body>
+
+<h1>iRallyMeter</h1>
+<p class="sub">Audit and hardening report for Amirali &middot; 5 August 2026<br>
+Prepared by Saam &middot; branch <code>SA-V3</code> at <code>90920ca</code></p>
+
+<div class="box">
+  <p style="margin:0"><strong>How to read this.</strong> Every number here is either
+  something that was measured or is explicitly labelled as not measured. Several of
+  them look similar and the difference matters, so the report keeps them apart
+  rather than blending them into one confidence level.</p>
+</div>
+
+<h2>1. Which branch to pull</h2>
+
+<pre style="font-family:'SF Mono',Menlo,monospace;font-size:9pt;background:#f4f4f6;padding:2.5mm 3mm;border-radius:3px;margin:0 0 3mm">git fetch origin
+git checkout SA-V3</pre>
+
+<p><code>main</code> is untouched at <code>c151ca2</code>, exactly the commit you left.
+Nothing was force pushed and no history was rewritten. There is deliberately
+<strong>no pull request open</strong>, because opening and merging one is yours and
+Saam's call, not mine.</p>
+
+<p>The work sits on two branches so you can review and take them separately.</p>
+
+<table>
+  <tr><th style="width:22%">Branch</th><th>What it holds</th><th style="width:26%">Size</th></tr>
+  <tr>
+    <td><code>SA-V2</code></td>
+    <td><strong>Correctness fixes only.</strong> Nothing discretionary, nothing cosmetic.</td>
+    <td>123 files, +17,168 / &minus;1,105</td>
+  </tr>
+  <tr>
+    <td><code>SA-V3</code></td>
+    <td>Branches off <code>SA-V2</code>. Polish, test infrastructure, the first iOS build, and the fixes from two external code reviews.</td>
+    <td>50 files, +2,223 / &minus;198</td>
+  </tr>
+</table>
+
+<p class="muted">99 commits in total against <code>main</code>. Each one carries the
+reasoning and, where behaviour changed, the test that failed before the fix.</p>
+
+<h2>2. The metrics</h2>
+
+<table>
+  <tr><th style="width:38%">&nbsp;</th><th style="width:31%">Your original version</th><th style="width:31%">Now</th></tr>
+  <tr><td>Unit and widget tests</td><td>354 passing</td><td class="good">414 passing, 0 failing</td></tr>
+  <tr><td>Test files</td><td>7</td><td class="good">43</td></tr>
+  <tr><td>Integration tests (real device)</td><td>none existed</td><td class="good">5 of 5 green</td></tr>
+  <tr><td>Golden image tests</td><td>none existed</td><td class="good">4, plus a determinism test</td></tr>
+  <tr><td><code>flutter analyze</code></td><td>2 issues</td><td>2 issues, the same two</td></tr>
+  <tr><td>iOS</td><td>never built</td><td class="good">builds, installs, launches</td></tr>
+  <tr><td>Skipped tests</td><td>1</td><td>1, held at full strength</td></tr>
+</table>
+
+<p>The two analyze issues are pre existing and unrelated to any of this: a deprecated
+<code>activeColor</code>, and an unused test parameter. The single skipped test was
+left at full strength rather than weakened to make the suite look clean.</p>
+
+<div class="box ok">
+  <p style="margin:0"><strong>One theme predicts most of what was found.</strong>
+  The app asserted things it had not measured, and in most cases a documentation
+  comment already described the correct behaviour while the code had quietly stopped
+  implementing it. Your comments were usually right. The code had drifted away from
+  them.</p>
+</div>
+
+<h2 class="pb">3. The defects that would have cost a crew a result</h2>
+
+<p>Ordered by how much damage each one does on a stage.</p>
+
+<div class="avoid">
+<h3><span class="tag t-red">CRITICAL</span> &nbsp;A single tap wiped your trip counter</h3>
+<dl class="ba">
+  <dt>Before</dt>
+  <dd>One tap anywhere on a trip tile zeroed it. That tile is roughly 40 percent of
+  the cluster in landscape. The only guard was lock mode, which is off by default.
+  One gloved brush on a gravel section and Trip A was gone mid stage.</dd>
+  <dt>After</dt>
+  <dd>Long press. The handler was renamed as well as rebound, because it was called
+  <code>_confirmReset</code> and confirmed nothing, which is how it survived review.</dd>
+  <dt>Worth noting</dt>
+  <dd>Three things in the code disagreed with each other: the <code>onTap</code>
+  binding, that method name, and the class documentation which already said
+  <em>reset on long press</em>. The documentation was correct.</dd>
+</dl>
+</div>
+
+<div class="avoid">
+<h3><span class="tag t-red">CRITICAL</span> &nbsp;Zero distance through a tunnel, on some phones</h3>
+<dl class="ba">
+  <dt>Before</dt>
+  <dd>Receivers that report <code>0.0</code> for Doppler speed rather than null exist,
+  and your own comment names them. Those phones measured open road correctly, then
+  entered a tunnel anchored at zero speed and accrued nothing for its entire length,
+  while the cluster showed a confident 0 km/h.</dd>
+  <dt>After</dt>
+  <dd>The emit site now applies the same validity test that already sat three lines
+  above it.</dd>
+  <dt>Proof</dt>
+  <dd>Putting the old line back fails the new tunnel test and nothing else. This was
+  verified by reverting it, not assumed.</dd>
+</dl>
+</div>
+
+<div class="avoid">
+<h3><span class="tag t-red">CRITICAL</span> &nbsp;The compass lied while you were stopped</h3>
+<dl class="ba">
+  <dt>Before</dt>
+  <dd>Once the car had moved, the GPS course stayed valid for the rest of the app's
+  life. Stop, and the cluster showed a frozen old heading still labelled
+  <code>GPS</code>, with nothing marking it stale. The magnetometer branch was
+  unreachable.</dd>
+  <dt>After</dt>
+  <dd>The source releases below 0.8 m/s and reacquires above 1.4 m/s. The gap between
+  those two numbers is deliberate. A single threshold would make the label flicker at
+  the boundary, so the gap is the feature.</dd>
+</dl>
+</div>
+
+<div class="avoid">
+<h3><span class="tag t-red">CRITICAL</span> &nbsp;The first position came from the wrong provider</h3>
+<dl class="ba">
+  <dt>Before</dt>
+  <dd>The cold start seed called <code>getLastKnownPosition()</code> with no arguments,
+  and that parameter defaults to false, so on any phone with Play Services it returned
+  the fused provider. That is the road snapping provider the rest of the file
+  deliberately refuses everywhere else.</dd>
+  <dt>Why it matters</dt>
+  <dd>A seed fix snapped onto a road is worse than a slightly stale raw one. It is
+  confidently wrong, and it is the position the trip anchor starts from.</dd>
+</dl>
+</div>
+
+<div class="avoid">
+<h3><span class="tag t-amber">HIGH</span> &nbsp;The moving average roughly doubled at 5 Hz</h3>
+<dl class="ba">
+  <dt>Measured</dt>
+  <dd><span class="num">39.96 m/s reported for a car doing 20.</span> The distance and
+  the ordinary average were both correct at the same moment, which is why this could
+  sit next to a readout that looks perfectly right.</dd>
+  <dt>Cause</dt>
+  <dd>The integrator decided whether the car was moving by asking whether that
+  particular sample banked distance. Those are different questions. The noise gate
+  deliberately holds small movements until they accumulate past the fix's own
+  accuracy, so at 5 Hz one interval in two banks nothing while the car is moving
+  perfectly steadily. Each of those was counted as a stop.</dd>
+  <dt>Worth noting</dt>
+  <dd>It got <em>worse</em> the faster the receiver, so a better GPS chip made the
+  number less accurate. That is backwards, and it is the second defect in this
+  codebase with that shape.</dd>
+</dl>
+</div>
+
+<div class="avoid">
+<h3><span class="tag t-amber">HIGH</span> &nbsp;A revoked permission looked exactly like a tunnel</h3>
+<dl class="ba">
+  <dt>Before</dt>
+  <dd>The retry loop caught every platform error, which is correct, and then emitted
+  the identical value a tunnel produces. So the failure became invisible the moment it
+  was handled. A revoked permission, a dead sensor and a platform exception all read
+  as <code>GPS LOST</code>.</dd>
+  <dt>Why it matters</dt>
+  <dd>Those need opposite responses from the crew. A tunnel is waited out. A revoked
+  permission has to be acted on, and the app was sending them to look for open sky.</dd>
+  <dt>After</dt>
+  <dd>The failure is carried on the sample and the cluster reads <code>GPS ERROR</code>
+  with its own icon. Retry behaviour is completely unchanged.</dd>
+</dl>
+</div>
+
+<div class="avoid">
+<h3><span class="tag t-amber">HIGH</span> &nbsp;A ten minute reconnect fired inside a long tunnel</h3>
+<dl class="ba">
+  <dt>Before</dt>
+  <dd>A backstop tore down and rebuilt the location subscription after ten minutes of
+  silence. The comment on that limit claimed it was longer than any real tunnel
+  transit while, in the same sentence, citing the L&aelig;rdal tunnel at about 1,102
+  seconds against a 600 second limit. So it was guaranteed to fire in the longest road
+  tunnel in the world, restarting the very foreground service that keeps the receiver
+  alive in there.</dd>
+  <dt>After</dt>
+  <dd>Thirty minutes, which clears L&aelig;rdal at 60 km/h rather than only at its
+  posted limit, because a tunnel is driven at the speed traffic allows. A reconnect
+  triggered by silence alone is also no longer recorded as a fault, since no duration
+  can prove a subscription is dead when a traffic jam can outlast any of them.</dd>
+</dl>
+</div>
+
+<div class="avoid">
+<h3><span class="tag t-green">MINE</span> &nbsp;A health counter that could never move</h3>
+<p><code>STREAM STALLS</code> had no caller at all, so it read zero forever. The road
+test procedure asks a tester to check that exact field, which meant the check could
+not fail and would have been signed off without measuring anything. This defect was
+introduced by me, not by you, and it is recorded here for the same reason as
+everything else.</p>
+</div>
+
+<h3>Also fixed</h3>
+<ul>
+  <li>The true north calibration never actually learned, and displayed <code>MAG</code>
+  while doing so, which reads as its own opposite.</li>
+  <li>Agreeing samples were never checked for agreement. Twenty contradictory readings
+  cleared the gate as readily as twenty consistent ones.</li>
+  <li>The speedometer displayed readings the odometer had already rejected, so the two
+  disagreed by construction.</li>
+  <li>The GNSS health panel was frozen at whatever it read when the screen opened.</li>
+  <li>The calibration relearned from zero on every launch.</li>
+  <li>The GPS heading lagged by samples. Measured at 60.5 degrees of error at 5 Hz
+  against 18.0 at 1 Hz for the same turn on the same road.</li>
+  <li><code>SafeArea</code> was missing on the map, which is the screen that runs
+  landscape on a windscreen mount where the cutout sits on a side edge, exactly where
+  the record button and coordinate readout are.</li>
+  <li>Every settings row was dead to the touch. A coloured box between the row and its
+  material ancestor swallowed the ink splash, so a tap gave no feedback at all.</li>
+  <li>The trip readout physically shrank as you drove. Measured on a 360 by 110 tile,
+  <code>9.99</code> renders 67.0 px tall and <code>100.00</code> renders 50.4 px, so
+  crossing 100 km shrinks the number a co driver reads aloud by 25 percent and moves
+  the decimal point 83 px. On a wide screen the same values differ by 0.1 px, which is
+  why it was never caught by eye.</li>
+  <li>Night mode never reached four screens, including the map coordinate bar and the
+  split times, both of which sit in the driver's eyeline.</li>
+  <li>The countdown was stuck at 1:00 because its setter was never called.</li>
+</ul>
+
+<h2 class="pb">4. What the new tests can and cannot prove</h2>
+
+<p>Test count on its own is a weak number, so here is what the new coverage actually
+buys and where it stops.</p>
+
+<table>
+  <tr><th style="width:24%">Layer</th><th>Proves</th><th style="width:32%">Does not prove</th></tr>
+  <tr>
+    <td><strong>Unit and widget</strong><br><span class="muted">414 tests</span></td>
+    <td>Every measurement rule, the tunnel state machine, the compass source switch, and each defect above by a test that failed before its fix.</td>
+    <td>Anything about the real device, the real receiver, or real driving.</td>
+  </tr>
+  <tr>
+    <td><strong>Golden images</strong><br><span class="muted">4 images</span></td>
+    <td>Layout, colour and composition. They caught a night mode defect on their very first run.</td>
+    <td>Typography. The test framework substitutes a font whose glyphs are all one width, so they cannot see a wrong label or a wrong number.</td>
+  </tr>
+  <tr>
+    <td><strong>Integration</strong><br><span class="muted">5 tests, real device</span></td>
+    <td>The real boot path with real storage, real routing and real platform channels. It found the dead settings rows on its first complete run.</td>
+    <td>Anything needing GNSS. An emulator has no receiver, and injected location is synthetic.</td>
+  </tr>
+  <tr>
+    <td><strong>iOS</strong></td>
+    <td>It builds, installs, launches and lays out with no crash and no overflow. It found the permission screen telling iPhone users that Android needs a permission iOS never asks for.</td>
+    <td>Accuracy or compass. A simulator has neither GNSS nor a magnetometer.</td>
+  </tr>
+</table>
+
+<div class="box warn">
+  <p style="margin:0"><strong>No road test has ever happened, and this is the honest
+  limit of everything above.</strong> Every accuracy figure in the repository comes
+  from generated fixtures or an emulator, where the ground truth is exact by
+  construction. <code>docs/ROAD-TEST.md</code> is the procedure. Its first item is a
+  stop ship check: whether the trip counter can fail to come back after location
+  services are switched off and on again. If that item fails, it reopens work rather
+  than becoming a later fix.</p>
+</div>
+
+<h2>5. Things deliberately left alone</h2>
+
+<ul>
+  <li><strong>The wakelock.</strong> Reviewed and unchanged. Scoping it to a trip
+  requires a concept of an active trip that the app does not have, and a cluster that
+  blanks at a control is worse than a lit screen in a service park. The accepted cost
+  is written into the code rather than only into a commit message.</li>
+  <li><strong>Persian-Indic numerals.</strong> For an Iranian crew the digits are the
+  product. That is a market decision, not a code decision, so it is question 4 below.</li>
+  <li><strong>Touch target on the speed unit toggle.</strong> Enlarging a gesture
+  nobody knows exists fixes the smaller half of the problem. Worth a design
+  conversation before touching it.</li>
+  <li><strong>Magnetic interference detection.</strong> Investigated and reported as
+  not built. The sensor package exposes no accuracy channel, so it is a native
+  addition rather than something that can be read.</li>
+</ul>
+
+<h2 class="pb">6. What I need from you</h2>
+
+<p>Two of these expire, in the sense that they get more expensive the longer they
+wait. The rest can be answered at your convenience.</p>
+
+<h3>Time sensitive</h3>
+
+<ol class="q">
+  <li>
+    <strong>Whose signing key, and where is it kept?</strong><br>
+    The release APK is currently debug signed. An app first installed under a debug key
+    <strong>cannot be updated with a real one without uninstalling first</strong>, and
+    uninstalling wipes every tester's saved trips. This has to be settled before your
+    father or anyone else builds up data worth keeping. Debug signing is also fatal for
+    Cafe Bazaar, Myket and Play.
+  </li>
+  <li>
+    <strong>iOS 12 or iOS 13?</strong><br>
+    The Flutter iOS migrator raised <code>IPHONEOS_DEPLOYMENT_TARGET</code> from 12.0 to
+    13.0 on the first build. It is not optional, because current Flutter does not
+    support iOS 12, but it changes which handsets can install the app and you had asked
+    for a 12 floor. Confirm you accept 13, or we pin an older Flutter and accept that
+    cost instead.
+  </li>
+</ol>
+
+<h3>Product decisions</h3>
+
+<ol class="q" start="3">
+  <li>
+    <strong>Which map tile source?</strong><br>
+    The offline maps TODO in the code cannot be completed as written. The OpenStreetMap
+    Foundation policy explicitly prohibits the pre seeding it plans, so this is a
+    licensing constraint before it is a preference. Options are ranked in
+    <code>docs/IRAN-CONSTRAINTS.md</code>.
+  </li>
+  <li>
+    <strong>Persian-Indic digits, or Latin numerals with translated labels?</strong><br>
+    This is the one question I genuinely cannot answer for you. Ask a crew.
+  </li>
+  <li>
+    <strong>Is following an imported GPX route in scope?</strong><br>
+    Today a route can be imported, and the app confirms it parsed, and then it can only
+    be exported again or deleted. <strong>Nothing anywhere draws a saved route.</strong>
+    Importing a route strongly implies driving it, so as things stand this will get
+    reported as a bug rather than a missing feature.
+  </li>
+  <li>
+    <strong>Should the trip counters be settable to a value?</strong><br>
+    They can be zeroed and nudged, never set. A regularity restart normally means
+    entering a known distance.
+  </li>
+  <li>
+    <strong>Is portrait supported, or is the app landscape only?</strong><br>
+    It now launches portrait and follows the device rotation setting. Landscape is the
+    clean layout and is what a mount uses.
+  </li>
+</ol>
+
+<h3>Two readings of the specification, section 12.2</h3>
+
+<ol class="q" start="8">
+  <li>
+    <strong>Does 12.2 saturate at the ceiling, or snap back to the entry speed?</strong><br>
+    The literal reading produces a sawtooth of 25, then 20, then 25, which on a driver
+    facing readout looks like a fault rather than a limit.
+  </li>
+  <li>
+    <strong>Should it apply upwards only?</strong><br>
+    Applied symmetrically it would hold a stopped car at the entry speed and invent
+    distance. The current behaviour lets braking run to a clean stop, and a test already
+    asserts that.
+  </li>
+</ol>
+
+<h2>7. What happens next</h2>
+
+<table>
+  <tr><th style="width:34%">Item</th><th>Status</th></tr>
+  <tr><td>Two external code review passes</td><td class="good">Run. All four findings on the measurement path are fixed.</td></tr>
+  <tr><td>Nine lower priority review findings</td><td>Open. Next block of work, none of them urgent.</td></tr>
+  <tr><td>Road test</td><td class="num">Never done. Needs a car. Item 1 is stop ship.</td></tr>
+  <tr><td>Pull request</td><td>Not opened, on purpose. Yours and Saam's to open and merge.</td></tr>
+</table>
+
+<p class="muted" style="margin-top:6mm">Full technical detail with file references is in
+<code>docs/QA-REPORT.md</code>. The road test procedure is
+<code>docs/ROAD-TEST.md</code>. Every question above is also tracked in
+<code>docs/FOR-AMIRALI.md</code> with what would reverse each decision.</p>
+
+</body>
+</html>
