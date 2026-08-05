@@ -295,13 +295,25 @@ void main() {
     test('20b · a genuine tunnel inside the duration bound still reconciles',
         () {
       // The suspension guard must not have disabled reconciliation outright.
+      //
+      // FIXTURE CORRECTED, ASSERTION UNCHANGED. This used to put the exit fix
+      // 222 m from entry 1.1 s after the tunnel began — 202 m/s, or 727 km/h.
+      // It passed only because the old code measured the blackout to the THIRD
+      // confirming fix instead of to the first usable one, inflating the
+      // duration until 202 m/s looked like 58. Both the CODEX-3 speed-history
+      // guard and the CODEX-2 dark-end reconciliation correctly reject a
+      // teleport, so the geometry has to be one a car could actually drive.
+      //
+      // 10 s dark at 20 m/s: the estimate coasts to ~200 m and the car really
+      // travelled ~300 m, so there is a genuine ~100 m undershoot to correct
+      // and the chord implies a perfectly ordinary 30 m/s.
       final h = _Harness()..driveInto(tunnelAtMs: 4100, speedMps: 20);
-      h.coast(fromMs: 4100, toMs: 5100); // estimate ≈ 40 m
+      h.coast(fromMs: 4100, toMs: 14100); // estimate ≈ 200 m
 
-      // Exit ~222 m from entry → a real, provable undershoot.
-      h.gps(lat: 46.0022, lon: 8.0, speed: 20, ms: 5200);
-      h.gps(lat: 46.0023, lon: 8.0, speed: 20, ms: 6900);
-      h.gps(lat: 46.0024, lon: 8.0, speed: 20, ms: 7900); // §15.2: 3 fixes
+      // Exit ~300 m north of the entry fix → a real, provable undershoot.
+      h.gps(lat: 46.002895, lon: 8.0, speed: 20, ms: 14200);
+      h.gps(lat: 46.003000, lon: 8.0, speed: 20, ms: 15200);
+      h.gps(lat: 46.003100, lon: 8.0, speed: 20, ms: 16200); // §15.2: 3 fixes
 
       expect(h.state.reconciling, isTrue,
           reason: 'a real tunnel undershoot must still be corrected');

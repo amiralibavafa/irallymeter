@@ -136,10 +136,28 @@ void main() {
       final r = replay('tunnel_2km.jsonl');
       expect(r.enteredEstimationCount, 1,
           reason: 'the 80 s blackout must be detected exactly once');
+      // ATTRIBUTION CHANGED IN [SA-V2 10], ACCURACY DID NOT.
+      //
+      // This used to require the SENSOR alone to produce ~2000 m, which was a
+      // fair proxy while the estimator ran until §15.2 confirmed recovery three
+      // fixes later. Codex's CODEX-2 fix stops the estimator the moment real
+      // fixes return, so the last stretch of the blackout is now MEASURED and
+      // reconciled instead of estimated: 1923.8 m estimated + 76.2 m
+      // reconciled = exactly 2000 m, and the trip total for this fixture is
+      // 3000.0 m against 3000.0 m of ground truth — zero error.
+      //
+      // So the co-driver-facing number is asserted first, and the estimator's
+      // own contribution second. A regression where the estimator silently does
+      // nothing still fails this, because the trip total would collapse.
+      expect(r.errorFraction(3000.0), lessThanOrEqualTo(0.03),
+          reason: 'the trip total is what a co-driver reads: '
+              '${r.totalMeters.toStringAsFixed(1)} m against 3000.0 m');
       final estimated = r.metersBySource[DistanceSource.sensor] ?? 0;
-      expect((estimated - 2000.0).abs() / 2000.0, lessThanOrEqualTo(0.03),
-          reason: 'estimated ${estimated.toStringAsFixed(1)} m against a '
-              'ground truth of 2000.0 m');
+      expect(estimated, greaterThanOrEqualTo(2000.0 * 0.95),
+          reason: 'the estimator only produced '
+              '${estimated.toStringAsFixed(1)} m of the 2000 m blackout — it '
+              'is meant to carry the dark stretch until real fixes return, not '
+              'to hand the whole thing to reconciliation');
     });
 
     test('T4 · recovery never moves the counters backwards', () {

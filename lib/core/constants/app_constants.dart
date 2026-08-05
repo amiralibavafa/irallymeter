@@ -217,6 +217,24 @@ class AppConstants {
   /// never arrive, where the honest answer is that measuring beats guessing.
   static const Duration estimationExitUsableWindow = Duration(seconds: 10);
 
+  /// How much faster than the observed endpoint speeds a recovery chord may
+  /// imply before it is treated as a displaced fix rather than real travel.
+  ///
+  /// The old guard was a flat 90 m/s, which is not a guard at all on the case
+  /// that matters. A receiver leaving a tunnel can reacquire as a STABLE
+  /// CLUSTER hundreds of metres off the true path: those fixes agree with each
+  /// other, so `_mutuallyConsistent` passes, and a 1 km chord after a 25 s
+  /// blackout implies 40 m/s — comfortably under 90. The whole false residual
+  /// was then queued, and a residual can never be taken back.
+  ///
+  /// The car's own Doppler speeds at entry and exit are the evidence the flat
+  /// number ignored. A vehicle that went in at 20 m/s and came out at 20 m/s did
+  /// not average 40 m/s in between. `1.5x + 5 m/s` leaves room for genuinely
+  /// accelerating through a tunnel — 20 m/s endpoints still allow a 35 m/s
+  /// average, about 126 km/h — while rejecting Codex's cluster outright.
+  static const double maxRecoveryChordSpeedFactor = 1.5;
+  static const double maxRecoveryChordSpeedMarginMps = 5.0;
+
   /// SPEC-v2 §15.2: recovery fixes must be "mutually consistent — each implies
   /// a plausible speed relative to the previous one". This is that plausibility
   /// bound (m/s); a pair implying more is re-acquisition noise, not driving.

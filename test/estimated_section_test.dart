@@ -125,8 +125,16 @@ void main() {
       // Entry is the heartbeat that noticed 3 s of silence; exit is the third
       // confirming fix, not the first one back.
       expect(s.start, r.at(4100));
-      expect(s.end, r.at(10200));
-      expect(s.duration, const Duration(milliseconds: 6100));
+      // [SA-V2 10]: the section ends when the blackout ends — the first usable
+      // fix at 8200 — not when §15.2 confirms recovery two fixes later. That is
+      // the point of provisional measuring: from 8200 the engine MEASURES, so
+      // 8200-10200 was never estimated and does not belong in an estimated
+      // section. The recorded duration is now the true dark time.
+      expect(s.end, r.at(8200));
+      // 4.1 s, not 6.1 s: the section spans the BLACKOUT (4100 -> 8200), not
+      // the blackout plus the two fixes §15.2 spends confirming. See the note
+      // on `s.end` above.
+      expect(s.duration, const Duration(milliseconds: 4100));
       expect(s.end.isAfter(s.start), isTrue);
     });
 
@@ -142,14 +150,21 @@ void main() {
     });
 
     test('06 · the correction applied on recovery is recorded', () {
+      // FIXTURE MADE PHYSICAL, ASSERTION UNCHANGED. This used to go dark for
+      // 4.1 s and reappear 380 m away — 92.7 m/s, or 334 km/h. It passed only
+      // because reconciliation ran at the THIRD confirming fix, inflating the
+      // duration until the implied speed slipped under the old flat 90 m/s cap.
+      // CODEX-3 now judges the chord against the car's own Doppler speeds, so
+      // the geometry has to be one a car could drive: 15 s dark at 20 m/s.
       final r = Rig()..driveIntoTunnel();
-      r.coast(fromMs: 4100, toMs: 8000);
-      r.recoverAt(ms: 8200, northM: 400);
+      r.coast(fromMs: 4100, toMs: 19000);
+      r.recoverAt(ms: 19200, northM: 400);
 
       final s = r.engine.sections.last!;
-      // Entry fix was 20 m north; the exit fix that completes the streak is at
-      // 440 m, so GPS can prove a 420 m chord.
-      final chord = 420.0;
+      // Entry fix was 20 m north; the DARK-END fix — the first usable one, at
+      // 400 m — is what the estimate is reconciled against now, not the fix
+      // that completes the streak. So GPS can prove a 380 m chord.
+      final chord = 380.0;
       expect(s.estimatedMeters, greaterThan(0),
           reason: 'coasting at 20 m/s for ~4 s must estimate something');
       expect(s.correctionMeters, closeTo(chord - s.estimatedMeters, 1e-6));
@@ -211,7 +226,12 @@ void main() {
       final r = Rig()..driveIntoTunnel();
       // No motion samples at all, so the estimate contributes nothing and the
       // whole chord becomes residual.
-      r.recoverAt(ms: 8200, northM: 500);
+      //
+      // Dark long enough for 480 m to be physical (see test 06): at 20 m/s
+      // entry the chord may imply up to 35 m/s, so 480 m needs >= 13.7 s.
+      r.tick(12000);
+      r.tick(20000);
+      r.recoverAt(ms: 20200, northM: 500);
 
       final s = r.engine.sections.last!;
       expect(s.correctionMeters,

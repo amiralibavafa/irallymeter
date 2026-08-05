@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/geo_math.dart';
 import '../../gps/domain/gps_sample.dart';
@@ -108,6 +110,19 @@ class DistanceEngine {
   GpsSample? _usableLast;
   DateTime? _usableLastAt;
 
+  /// The first usable fix of the current recovery run — where the genuinely
+  /// DARK stretch ended. From here the engine measures from real fixes instead
+  /// of dead-reckoning, and the stretch is reconciled against THIS fix rather
+  /// than the eventual exit one.
+  ///
+  /// Without that, provisional measuring would double-count: the chord to the
+  /// exit fix spans ground the engine had already measured metre by metre.
+  GpsSample? _darkEndFix;
+
+  /// True while usable fixes are flowing but §15.2 has not confirmed recovery.
+  /// The sensor estimate is SUSPENDED here — see [_maybeExitTunnel].
+  bool _measuringWhileEstimating = false;
+
   // ===========================================================================
   // Inputs
   // ===========================================================================
@@ -123,9 +138,13 @@ class DistanceEngine {
       // fix we would refuse to integrate is not evidence of that.
       _recoveryStreak = 0;
       _recoveryLast = null;
-      _usableSince = null;
-      _usableLast = null;
-      _usableLastAt = null;
+      if (_state.tunnelMode) {
+        _breakUsableRun(now);
+      } else {
+        _usableSince = null;
+        _usableLast = null;
+        _usableLastAt = null;
+      }
       _maybeEnterTunnel(now,
           degradedFixAccuracyM: s.hasFix ? s.accuracyM : null);
       return;
@@ -164,6 +183,14 @@ class DistanceEngine {
     _noteMotion(now);
     _pendingMotion = m;
     if (!_state.tunnelMode) return;
+
+    // PROVISIONAL MEASURING (Codex CODEX-2). While usable fixes are arriving the
+    // engine measures from them instead of dead-reckoning, so the estimate must
+    // not also run — otherwise the same ground is counted twice, and an
+    // over-count is permanent because `_reconcileAgainst` pays undershoot only.
+    // The sensor is still fed below via `_sensor.add` being skipped, and it is
+    // re-seeded from the last real speed if the fixes stop again.
+    if (_measuringWhileEstimating) return;
 
     final delta = _sensor.add(m);
     if (delta == null) return;
@@ -257,6 +284,8 @@ class DistanceEngine {
     _usableSince = null;
     _usableLast = null;
     _usableLastAt = null;
+    _darkEndFix = null;
+    _measuringWhileEstimating = false;
 
     _publish(_state.copyWith(
       source: DistanceSource.sensor,
@@ -313,12 +342,41 @@ class DistanceEngine {
             prevUsableAt == null ||
             now.difference(prevUsableAt) > AppConstants.tunnelConfirmDelay);
     if (broken) {
-      _usableSince = now; // the run restarts at this fix
-    } else {
-      _usableSince ??= now;
+      _breakUsableRun(now); // the run restarts at this fix
+    }
+    if (_usableSince == null) {
+      // FIRST usable fix of this run: the dark stretch ends HERE.
+      //
+      // From this point the engine MEASURES rather than dead-reckons, which is
+      // Codex's provisional-measuring fix. Estimation Mode stays on — §15.2 has
+      // not confirmed anything yet and the display must keep saying EST — but
+      // the number behind it is now real, so there is nothing to take back if
+      // the fixes turn out to be a tunnel-mouth burst and the run breaks.
+      _usableSince = now;
+      _darkEndFix = s;
+      _measuringWhileEstimating = true;
+      _gps.reanchor(s); // anchor only; emits nothing
+
+      // SETTLE THE DARK STRETCH HERE, not at exit. This fix is where the
+      // blackout ended; everything after it is measured. Reconciling later
+      // would compare the estimate against a chord spanning ground already
+      // counted, and settling never would silently DISCARD the estimate if the
+      // run then broke — which is exactly what cost T3 and S3 3.8 % and 8.2 %.
+      _settleDarkStretch(s, now);
     }
     _usableLast = s;
     _usableLastAt = now;
+
+    // Measure from this fix. `_gps.add` applies the whole §6.1 gate, so a
+    // 21-25 m fix contributes exactly what it would outside a tunnel.
+    if (_measuringWhileEstimating) {
+      final delta = _gps.add(s);
+      if (delta != null) {
+        _gpsSpeedMps = delta.speedMps;
+        _emit(delta);
+        _publish(_state.copyWith(speedMps: delta.speedMps));
+      }
+    }
 
     if (s.accuracyM <= AppConstants.estimationExitAccuracyMeters) {
       final prev = _recoveryLast;
@@ -339,11 +397,61 @@ class DistanceEngine {
       _recoveryLast = null;
     }
 
+    // The sustained-usable exit. It no longer costs anything: the window is
+    // spent MEASURING, not coasting, so waiting it out cannot invent distance.
+    // That is what makes it safe to keep alongside §15.2 rather than a
+    // deviation from it — §15.2 still decides when the display stops saying
+    // EST, and three fixes at 20 m still do that immediately.
     final since = _usableSince;
     if (since != null &&
         now.difference(since) >= AppConstants.estimationExitUsableWindow) {
       _exitTunnel(s, now);
     }
+  }
+
+  /// Reconcile and log the blackout that just ended, then zero the estimate.
+  ///
+  /// Called once per dark stretch, at the moment real fixes take over. A tunnel
+  /// with a usable patch in the middle is therefore two stretches, each
+  /// reconciled against its own chord, rather than one stretch whose estimate is
+  /// compared to a chord it never covered.
+  void _settleDarkStretch(GpsSample darkEnd, DateTime at) {
+    final start = _state.tunnelSince;
+    final estimated = _state.tunnelMeters;
+    if (start == null) return;
+
+    final correction = _reconcileAgainst(darkEnd, at);
+    _logSection(start, at, estimated, correction);
+
+    _sensor.reset();
+    _publish(_state.copyWith(
+      tunnelSince: at,
+      tunnelMeters: 0,
+      reconciling: _reconciler.isActive,
+    ));
+  }
+
+  /// The usable run broke: go back to dead-reckoning from the last real speed.
+  ///
+  /// Nothing measured is discarded — it was ground truth. Only the ANCHOR is
+  /// dropped, so the next dark stretch is reconciled against where the car
+  /// actually was when the signal died, not where it entered the first tunnel.
+  void _breakUsableRun(DateTime now) {
+    _usableSince = null;
+    _usableLast = null;
+    _usableLastAt = null;
+    if (_measuringWhileEstimating) {
+      // The stretch that just ended was settled at dark-end, and everything
+      // since was measured. So this only OPENS a new dark stretch: anchor it at
+      // the last fix we trusted and re-seed the estimate from the speed that
+      // fix reported, rather than the one we entered the first tunnel at.
+      _tunnelEntryFix = _gps.anchor ?? _darkEndFix ?? _tunnelEntryFix;
+      _tunnelEntrySpeedMps = _gpsSpeedMps;
+      _sensor.seed(_gpsSpeedMps, _pendingMotion?.timestamp ?? now);
+      _publish(_state.copyWith(tunnelSince: now, tunnelMeters: 0));
+    }
+    _measuringWhileEstimating = false;
+    _darkEndFix = null;
   }
 
   /// Whether [b] implies a plausible speed relative to [a] (SPEC-v2 §15.2).
@@ -368,19 +476,23 @@ class DistanceEngine {
     // estimate we already emitted for it.
     _gps.reanchor(exitFix);
 
-    // Read the section's facts BEFORE anything clears them: the publish below
-    // wipes tunnelSince and tunnelMeters.
-    final start = _state.tunnelSince;
-    final estimated = _state.tunnelMeters;
-
-    final correction = _reconcileAgainst(exitFix, now);
-    _logSection(start, now, estimated, correction);
+    // NOTHING is reconciled here any more. The dark stretch was settled the
+    // moment real fixes took over (`_settleDarkStretch`), and every metre since
+    // has been measured and already emitted. Reconciling again would compare an
+    // estimate of zero against a chord the engine had counted metre by metre,
+    // and queue the whole thing a second time.
+    //
+    // The only case with no dark-end is a mode that never saw a usable fix, and
+    // that cannot reach here: exiting requires healthy fixes.
+    if (_darkEndFix == null) _settleDarkStretch(exitFix, now);
 
     _sensor.reset();
     _tunnelEntryFix = null;
     _usableSince = null;
     _usableLast = null;
     _usableLastAt = null;
+    _darkEndFix = null;
+    _measuringWhileEstimating = false;
     _gpsSpeedMps = exitFix.speedMps.isFinite && exitFix.speedMps >= 0
         ? exitFix.speedMps
         : 0;
@@ -444,10 +556,32 @@ class DistanceEngine {
     );
     if (!chord.isFinite) return 0;
 
-    // 2. Physically impossible for the time spent dark → a bad fix, not a
-    //    tunnel. Mirrors the same 90 m/s guard the GPS source applies.
+    // 2. Faster than the car itself says it was going → a DISPLACED fix, not a
+    //    tunnel.
+    //
+    // This used to be a flat 90 m/s, which does not guard the case that
+    // matters. A receiver leaving a tunnel can reacquire as a stable cluster
+    // hundreds of metres off the true path: those fixes agree with EACH OTHER,
+    // so `_mutuallyConsistent` passes them, and a 1 km chord after a 25 s
+    // blackout implies 40 m/s — comfortably under 90. The entire false residual
+    // was then queued, and a residual is never given back.
+    //
+    // The car's own Doppler speeds at entry and exit are the evidence that
+    // check threw away. A vehicle that went in at 20 m/s and came out at 20 m/s
+    // did not average 40 m/s in between.
     final seconds = duration.inMilliseconds / 1000.0;
-    if (seconds <= 0 || chord / seconds > 90.0) return 0;
+    if (seconds <= 0) return 0;
+
+    final impliedMps = chord / seconds;
+    final endpoint = math.max(
+      _tunnelEntrySpeedMps.isFinite ? _tunnelEntrySpeedMps : 0.0,
+      exitFix.speedMps.isFinite && exitFix.speedMps >= 0 ? exitFix.speedMps : 0.0,
+    );
+    final plausibleMps = endpoint * AppConstants.maxRecoveryChordSpeedFactor +
+        AppConstants.maxRecoveryChordSpeedMarginMps;
+    // The absolute ceiling still applies, so a pair of nonsense endpoint speeds
+    // cannot license an arbitrarily long chord.
+    if (impliedMps > math.min(plausibleMps, 90.0)) return 0;
 
     final residual = chord - _state.tunnelMeters;
     if (residual <= 0) return 0; // Overshoot proves nothing — see doc above.
@@ -553,6 +687,8 @@ class DistanceEngine {
     _usableSince = null;
     _usableLast = null;
     _usableLastAt = null;
+    _darkEndFix = null;
+    _measuringWhileEstimating = false;
     _lastHealthySample = null;
     _tunnelEntryFix = null;
     _tunnelEntrySpeedMps = 0;
