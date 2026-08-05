@@ -26,13 +26,20 @@ class GeolocatorGpsService implements GpsRepository {
   GeolocatorGpsService({
     Stream<Position> Function(LocationSettings)? positionSource,
     Future<bool> Function()? serviceEnabled,
+    Future<Position?> Function({required bool forceAndroidLocationManager})?
+        lastKnownSource,
   })  : _positionSource = positionSource ??
             ((s) => Geolocator.getPositionStream(locationSettings: s)),
         _serviceEnabled =
-            serviceEnabled ?? Geolocator.isLocationServiceEnabled;
+            serviceEnabled ?? Geolocator.isLocationServiceEnabled,
+        _lastKnownSource = lastKnownSource ?? Geolocator.getLastKnownPosition;
 
   final Stream<Position> Function(LocationSettings) _positionSource;
   final Future<bool> Function() _serviceEnabled;
+
+  /// Seam for the cold-start seed fix, so the provider choice is assertable.
+  final Future<Position?> Function({required bool forceAndroidLocationManager})
+      _lastKnownSource;
 
   @override
   Future<bool> ensurePermission() async {
@@ -284,7 +291,18 @@ class GeolocatorGpsService implements GpsRepository {
 
   @override
   Future<GpsSample?> lastKnown() async {
-    final pos = await Geolocator.getLastKnownPosition();
+    // `forceAndroidLocationManager: true` is NOT optional here.
+    //
+    // It defaults to FALSE, and the plugin's GeolocationManager then returns
+    // FusedLocationClient whenever Google Play Services is present. The stream
+    // sets `forceLocationManager: true` precisely to avoid the fused
+    // provider's road-snapping — but this call bypassed that, so on an
+    // ordinary phone the FIRST position the map and speedometer showed came
+    // from the one provider the rest of the file deliberately refuses.
+    //
+    // A seed fix snapped to a road is worse than a slightly stale raw one: it
+    // is confidently wrong, and it is the value the trip anchor starts from.
+    final pos = await _lastKnownSource(forceAndroidLocationManager: true);
     if (pos == null) return null;
     return _toSample(pos);
   }
