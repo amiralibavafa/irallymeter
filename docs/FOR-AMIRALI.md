@@ -32,7 +32,7 @@ not mine.
 
 | | Before | Now |
 |---|---|---|
-| unit + widget tests | 354 pass / 1 skip | **411 pass / 1 skip / 0 fail** |
+| unit + widget tests | 354 pass / 1 skip | **414 pass / 1 skip / 0 fail** |
 | integration tests | none existed | **5 / 5 green** on a device |
 | golden tests | none existed | **4** + a determinism test |
 | `flutter analyze` | 2 issues | **2 issues**, the same two |
@@ -59,7 +59,8 @@ not mine.
   **anchored at zero and accrued nothing** for its whole length.
 - **After:** the emit site uses the same `dopplerUsable` test that sits three
   lines above it.
-- This one is **reasoned and compiled, not proven** — no dedicated test yet.
+- Now **proven**, not just reasoned: putting the old line back fails the new
+  tunnel test and nothing else.
 
 ### The compass lied while you were stopped
 - **Before:** once the car had moved, the GPS course stayed "valid" for the rest
@@ -158,7 +159,17 @@ construction. `docs/ROAD-TEST.md` is the procedure.
 **Item 1 is stop-ship**: whether the trip counter can fail to come back after
 location services are switched off and on. If that fails, it reopens the work.
 
-Three more findings from the code review are still open and all sit on the
-measurement path — GPS errors not reaching the error display, the moving average
-roughly doubling at 5 Hz, and a 10-minute reconnect that would fire inside a
-long tunnel. They are listed in `docs/QA-REPORT.md`.
+The three code-review findings that sat on the measurement path are now **fixed**
+and were the last blocking work:
+
+- **GPS errors never reached the error display.** The retry loop turned every
+  platform failure into the same value a tunnel produces, so a revoked
+  permission read as `GPS LOST`. Three tests covered that error state and all
+  three passed — none of them went through the real service.
+- **The moving average roughly doubled at 5 Hz.** Measured **39.96 m/s on a car
+  doing 20**. The distance and the ordinary average were both correct, which is
+  why it could sit next to a readout that looks right. It got worse the faster
+  the receiver.
+- **A 10-minute reconnect fired inside a long tunnel.** The limit's own comment
+  named Lærdal at 1102 s against a 600 s limit. Now 30 minutes, and a
+  silence-only reconnect is no longer recorded as a fault.

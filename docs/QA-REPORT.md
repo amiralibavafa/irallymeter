@@ -9,8 +9,8 @@ holds the correctness fixes. `SA-V3` branches off `SA-V2` and holds the polish
 and the test infrastructure, so the two can be reviewed and merged separately.
 **No PR has been opened** — that is Saam's and Amirali's call.
 
-**State at the time of writing:** `SA-V3` = `e2d4e14`, **89 commits ahead of
-`main`**, 9 of them on `SA-V3`.
+**State at the time of writing:** `SA-V3` = `700d6c1`. Updated after the two
+Codex review passes and the four fixes that came out of them.
 
 ---
 
@@ -18,7 +18,7 @@ and the test infrastructure, so the two can be reviewed and merged separately.
 
 | | Before this pass | Now |
 |---|---|---|
-| Unit + widget tests | 354 pass / 1 skip / 0 fail | **411 pass / 1 skip / 0 fail** |
+| Unit + widget tests | 354 pass / 1 skip / 0 fail | **414 pass / 1 skip / 0 fail** |
 | Integration tests | none existed | **5 / 5 green** on `emulator-5554` |
 | Golden tests | none existed | **4**, plus a determinism test |
 | `flutter analyze` | 2 issues | **2 issues**, the same two |
@@ -146,8 +146,21 @@ reverse each.
 ## What is still not done
 
 - **Stage 6 is this document.** Everything before it is complete.
-- **The codex passes have not been re-run against final HEAD.** They ran against
-  the research vault before most of this existed. Saam runs them; they are
-  `disable-model-invocation` and cannot be fired from here.
-- **No PR.** Open it against `main` when the codex findings are folded in, and
-  **do not merge** — that is for Saam and Amirali.
+- **The Codex passes have now run**, and their findings are folded in. `SA-V3`
+  against `SA-V2` returned 1 P1 and 2 P2; `SA-V2` against `main` returned 4 P1
+  and 9 P2.
+  - **Both P2s on `SA-V3` were mine, and both were vacuous passes in the very
+    suite written to prevent them**: a missing nav control `continue`d instead
+    of failing, so deleting a nav button still reported every route reachable;
+    and night-mode persistence asserted on the same live widget before and
+    after, so a silently failed write still passed.
+  - **All four P1s on the measurement path are fixed** — the zero-Doppler tunnel
+    seed (now with the proof test its own commit said it owed), GPS errors never
+    reaching the error display, the moving average roughly doubling at 5 Hz, and
+    the 10-minute backstop firing inside a long tunnel. Each is written up in its
+    commit with the failing test that came first.
+  - **The iOS 12 → 13 P1 is deliberately not "fixed"** — it is Amirali's product
+    decision, not a defect. See the table above.
+  - **The nine P2s on `SA-V2` are not done.** They are the next work.
+- **No PR.** Open it against `main` and **do not merge** — that is for Saam and
+  Amirali.
