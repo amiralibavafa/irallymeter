@@ -46,13 +46,6 @@ class Formatters {
 
   static String tripUnit({required bool metric}) => metric ? 'KM' : 'MI';
 
-  /// Distance to metre resolution ("1.590 km"). Rally tunnel legs are short, so
-  /// the trip readout's 2 dp would round away the metres that matter here.
-  static String distancePrecise(double meters, {required bool metric}) {
-    final v = metric ? meters / 1000 : meters * _mToMi;
-    return '${v.toStringAsFixed(3)} ${metric ? 'km' : 'mi'}';
-  }
-
   /// Elapsed time as m:ss (or h:mm:ss past an hour) — how a co-driver calls a
   /// tunnel time. No tenths: this is a read-back value, not a stage time.
   static String legTime(Duration d) {
@@ -61,14 +54,6 @@ class Formatters {
     final m = abs.inMinutes.remainder(60);
     final s = abs.inSeconds.remainder(60);
     return h > 0 ? '$h:${_p(m)}:${_p(s)}' : '$m:${_p(s)}';
-  }
-
-  /// Speed with one decimal ("60.1") — tunnel averages are compared closely
-  /// enough that the speedometer's whole-unit rounding loses real information.
-  static String speedPrecise(double mps, SpeedUnit unit) {
-    final v = unit == SpeedUnit.kmh ? mps * _msToKmh : mps * _msToMph;
-    if (v < 0 || v.isNaN) return '0.0';
-    return v.toStringAsFixed(1);
   }
 
   /// Heading as a zero-padded 3-digit "CAP" value (rally co-driver heading).
