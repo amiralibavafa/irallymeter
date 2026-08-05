@@ -105,6 +105,21 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
 
     final s = next.valueOrNull;
     if (s == null) return;
+
+    // The SAME failure, arriving the way production actually delivers it.
+    //
+    // The branch above only ever fires for a repository that lets an error
+    // reach the stream. The real service does not: it catches every platform
+    // error so one failure cannot end the stream for the rest of the drive, and
+    // then emits a marked sample. Without this, that branch was dead code in
+    // the shipped app — three tests covered it and none of them covered the
+    // path a real receiver takes.
+    if (s.errorMessage != null) {
+      lastError = s.errorMessage;
+      controller.add(GpsState.initial().copyWithError(lastError));
+      return;
+    }
+
     // A fix arrived: whatever was wrong is over.
     lastError = null;
     // §19 row 6 / stream-health measurement for the road test.

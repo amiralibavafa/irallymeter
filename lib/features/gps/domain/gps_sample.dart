@@ -14,6 +14,7 @@ class GpsSample {
     required this.hasFix,
     this.speedAccuracyMps = double.nan,
     this.stalled = false,
+    this.errorMessage,
   });
 
   final DateTime timestamp;
@@ -51,6 +52,25 @@ class GpsSample {
   /// health panel cannot tell them apart, which is why its counter sat at zero
   /// no matter what happened.
   final bool stalled;
+
+  /// The platform failure this synthetic sample is reporting, or null on every
+  /// ordinary sample.
+  ///
+  /// The service's retry loop catches every platform error so one failure
+  /// cannot end the stream for the rest of the drive. That is correct, and it
+  /// had a cost nobody had noticed: the error was converted to a plain
+  /// [GpsSample.noFix] — byte for byte what a TUNNEL emits — so it never
+  /// reached the consumer as an error at all. `gpsStateProvider`'s error branch
+  /// and the `GPS ERROR` status were unreachable in the shipped app, and a
+  /// revoked permission read as `GPS LOST`.
+  ///
+  /// Those two need opposite responses from the crew: a tunnel is waited out, a
+  /// revoked permission has to be acted on. Carrying the message ON the sample
+  /// keeps the retry behaviour exactly as it is — the stream still never errors
+  /// — while making the failure visible. Same shape as [stalled]: the loop
+  /// already knows which kind of event it is emitting, so it says so, rather
+  /// than leaving a consumer to guess from a value that cannot distinguish.
+  final String? errorMessage;
 
   /// Course over ground in degrees (0..360). NaN when not moving.
   final double headingDeg;
@@ -93,6 +113,20 @@ class GpsSample {
         altitudeM: 0,
         hasFix: false,
         stalled: true,
+      );
+
+  /// The platform stream failed. Carries [errorMessage] so the cluster can say
+  /// GPS ERROR rather than GPS LOST; the service still retries underneath.
+  factory GpsSample.error(String message) => GpsSample(
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+        latitude: 0,
+        longitude: 0,
+        speedMps: 0,
+        headingDeg: double.nan,
+        accuracyM: -1,
+        altitudeM: 0,
+        hasFix: false,
+        errorMessage: message,
       );
 
   factory GpsSample.noFix() => GpsSample(

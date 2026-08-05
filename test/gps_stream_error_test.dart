@@ -20,6 +20,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:geolocator/geolocator.dart';
+import 'package:irallymeter/features/gps/data/geolocator_gps_service.dart';
 import 'package:irallymeter/features/gps/domain/gps_repository.dart';
 import 'package:irallymeter/features/gps/domain/gps_sample.dart';
 import 'package:irallymeter/features/gps/presentation/providers/gps_providers.dart';
@@ -93,6 +95,52 @@ void main() {
           reason: 'driving into a tunnel raised GPS ERROR. A tunnel is '
               'silence, and telling the crew the receiver is broken every time '
               'they go under a mountain makes the warning worthless');
+    });
+
+    test('04 · an error from the REAL service reaches the error UI', () async {
+      // TESTS 01-03 ALL PASS AND STILL MISS THE PRODUCTION PATH. They inject a
+      // fake repository that puts an error straight onto the stream, so they
+      // prove the PROVIDER handles one — they never prove the provider is ever
+      // GIVEN one.
+      //
+      // It was not. `GeolocatorGpsService.positionStream` catches every platform
+      // error in its retry loop and yields `GpsSample.noFix()`, which is the
+      // exact same value a tunnel produces. So in the shipped app the error
+      // branch above was unreachable: a revoked permission, a dead sensor and a
+      // platform exception all read as GPS LOST, and the crew was sent looking
+      // for sky instead of into the settings screen.
+      //
+      // This drives the real service, so it fails if the loop ever goes back to
+      // swallowing errors — which is the failure mode a fake repository cannot
+      // see by construction.
+      final svc = GeolocatorGpsService(
+        positionSource: (_) =>
+            Stream<Position>.error(Exception('permission revoked')),
+        serviceEnabled: () async => true,
+        lastKnownSource: ({required bool forceAndroidLocationManager}) async =>
+            null,
+      );
+      final container = ProviderContainer(overrides: [
+        gpsRepositoryProvider.overrideWithValue(svc),
+      ]);
+      final sub = container.listen(gpsStateProvider, (_, __) {},
+          fireImmediately: true);
+
+      // Real wall clock, not a pump: the service awaits `lastKnown()` and the
+      // platform stream before its first error can surface.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      final error = container.read(gpsStreamErrorProvider);
+
+      // Torn down INSIDE the body, before the assertion. The retry loop
+      // re-subscribes on a 1.5 s backoff and would outlive an addTearDown.
+      sub.close();
+      container.dispose();
+
+      expect(error, isNotNull,
+          reason: 'the retry loop converted the platform error to a plain '
+              'no-fix sample, so the C14 error state could never be reached in '
+              'production no matter what went wrong with the receiver');
+      expect(error, contains('revoked'));
     });
   });
 }

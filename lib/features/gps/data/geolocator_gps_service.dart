@@ -233,7 +233,13 @@ class GeolocatorGpsService implements GpsRepository {
         print('iRallyMeter: GPS stream error ($e) — re-subscribing'
             '${downgrade ? ' (foreground-only fallback)' : ''}…');
         if (downgrade) background = false;
-        yield GpsSample.noFix();
+        // MARKED, not a plain no-fix. Retrying is right, but the old code
+        // yielded the identical value a tunnel produces, so the failure became
+        // invisible the moment it was handled: `gpsStateProvider`'s error
+        // branch and the GPS ERROR status were unreachable in the shipped app
+        // and a revoked permission read as GPS LOST. The crew was sent looking
+        // for sky instead of into settings. The stream still never errors.
+        yield GpsSample.error('$e');
       }
 
       // `stalled` is kept for readability at the branch above; the detector and
