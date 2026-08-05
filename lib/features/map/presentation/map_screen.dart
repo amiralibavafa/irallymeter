@@ -30,6 +30,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   final MapController _controller = MapController();
   bool _follow = true;
 
+  /// Latched once any tile fails. Latched rather than transient on purpose: if
+  /// tiles are failing they will keep failing until the network or the tile
+  /// source changes, and a banner that flickers on every retry is worse than
+  /// one that states the situation and stays put.
+  bool _tilesFailed = false;
+
+
+
   @override
   Widget build(BuildContext context) {
     final gps = ref.watch(gpsStateProvider).valueOrNull;
@@ -61,6 +69,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           FlutterMap(
             mapController: _controller,
             options: MapOptions(
+              // flutter_map defaults this to 0xFFE0E0E0 — a light grey. In an
+              // app that is black on every other screen, an unloaded map threw
+              // a large pale panel at a driver whose eyes are adapted to a dark
+              // cockpit. It also made "tiles failed" look identical to "empty
+              // terrain". Matching AppColors.base fixes both.
+              backgroundColor: AppColors.base,
               initialCenter: hasPos ? pos : const LatLng(46.0, 8.0),
               initialZoom: 15,
               maxZoom: 19,
@@ -77,6 +91,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 // therefore names an application that does not exist.
                 userAgentPackageName: 'com.irallyclub.irallymeter',
                 // tileProvider: FileTileProvider(), // ← enable for offline packs
+                //
+                // Fires when a tile request FAILS loudly (404, refused, DNS).
+                //
+                // It does NOT cover the case that matters most out here: a
+                // request that simply never completes, which is what a phone
+                // with no data actually does. Verified on device with wifi and
+                // mobile data both off — no error callback arrives, the tiles
+                // just never appear. A proper offline indicator needs the tile
+                // SOURCE decided first (question B2), because the answer
+                // differs for a bundled pack versus a live server; the honest
+                // interim behaviour is the dark background above, which at
+                // least stops a blank map blinding the driver at night.
+                errorTileCallback: (_, __, ___) {
+                  if (!_tilesFailed && mounted) {
+                    setState(() => _tilesFailed = true);
+                  }
+                },
               ),
               if (track.length > 1)
                 PolylineLayer(
@@ -100,6 +131,39 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ],
           ),
           if (recording.recording)
+          if (_tilesFailed)
+            Positioned(
+              top: 12,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.warn),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.cloud_off, color: AppColors.warn, size: 18),
+                      SizedBox(width: 10),
+                      Text(
+                        'MAP TILES UNAVAILABLE — POSITION STILL TRACKING',
+                        style: TextStyle(
+                          color: AppColors.warn,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
             const Positioned(top: 12, left: 12, child: _RecBadge()),
           // CAP heading instrument, relocated here from the home cluster.
           const Positioned(
