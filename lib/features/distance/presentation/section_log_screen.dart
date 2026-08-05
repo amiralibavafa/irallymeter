@@ -80,6 +80,23 @@ class _HealthPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final h = ref.watch(gpsHealthProvider);
+    // Watching the 1 Hz heartbeat is what makes this panel LIVE, and it is not
+    // optional decoration.
+    //
+    // `gpsHealthProvider` is a plain Provider holding a MUTABLE object.
+    // `gpsStateProvider` mutates it in place on every fix, but the identity
+    // never changes, so the provider never notifies and the watch above rebuilds
+    // nothing. Without this line the panel renders whatever the counters read
+    // the instant the screen opened and then sits there while the numbers move
+    // underneath it: a live-looking readout of dead values, on the screen
+    // ROAD-TEST reads SUSTAINED Hz and STREAM STALLS from.
+    //
+    // A wrapper provider would not have helped. Riverpod compares a Provider's
+    // new value with `==` before notifying, and it is the same instance, so a
+    // provider recomputed on every tick would still notify nobody. The rebuild
+    // has to come from something whose value genuinely changes, which is what
+    // `measurementStatusProvider` already uses this tick for.
+    ref.watch(displayTickProvider);
     final hz = h.sustainedHz;
     return Container(
       padding: const EdgeInsets.all(14),
