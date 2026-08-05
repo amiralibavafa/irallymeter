@@ -9,6 +9,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -108,6 +109,44 @@ void main() {
       // rationale.
       expect(find.textContaining('WHERE IT GOES'), findsOneWidget);
       await _unmount(tester);
+    });
+
+    testWidgets('03b · on iOS it does not talk about Android', (tester) async {
+      // FOUND ON THE FIRST-EVER iOS RUN (Stage 4). This screen told an iPhone
+      // user "Android needs this to keep the trip recording…" and "change
+      // either of these later in Android Settings", on the first screen they
+      // ever see.
+      //
+      // It was not only wrong wording. iOS does not use a notification
+      // permission to keep location alive in the background at all — that is
+      // the `location` UIBackgroundMode — so the card asked an iOS user to
+      // reason about a permission their phone will never request.
+      //
+      // The assertion above (test 03) is left UNCHANGED and still passes,
+      // which is what proves Android users still get the Android copy.
+      // Reset INSIDE the body, not via addTearDown: flutter_test verifies the
+      // foundation debug vars are unset when the body returns, and a tearDown
+      // runs after that check. `finally` so a failed expectation still clears
+      // it rather than leaking iOS into every test that follows.
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        final gps = _RecordingGps();
+        await _pumpApp(tester, storage, gps);
+
+        expect(find.textContaining('Android'), findsNothing,
+            reason: 'the word Android must not appear on an iPhone');
+        expect(find.textContaining('NOTIFICATIONS'), findsNothing,
+            reason: 'iOS never asks for it, so explaining it is noise');
+        expect(find.textContaining('One permission'), findsOneWidget,
+            reason: 'the count in the subtitle has to follow the cards');
+        expect(find.textContaining('iOS Settings'), findsOneWidget);
+        // The half that must NOT change: location is still explained.
+        expect(find.textContaining('LOCATION'), findsOneWidget);
+        expect(find.textContaining('WHERE IT GOES'), findsOneWidget);
+        await _unmount(tester);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
     });
 
     testWidgets('04 · CONTINUE persists the flag, flips the gate, and moves on',

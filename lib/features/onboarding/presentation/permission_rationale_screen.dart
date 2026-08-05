@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -124,9 +126,11 @@ class _PermissionRationaleScreenState
                     ),
                   ),
                   const SizedBox(height: 6),
-                  const Text(
-                    'Two permissions before you drive',
-                    style: TextStyle(
+                  Text(
+                    defaultTargetPlatform == TargetPlatform.android
+                        ? 'Two permissions before you drive'
+                        : 'One permission before you drive',
+                    style: const TextStyle(
                         color: AppColors.textSecondary, fontSize: 15),
                   ),
                   const SizedBox(height: 22),
@@ -134,20 +138,42 @@ class _PermissionRationaleScreenState
                     icon: Icons.satellite_alt,
                     color: AppColors.ok,
                     title: 'LOCATION',
-                    body: 'Distance is measured from GPS. Without location this '
+                    body:
+                        'Distance is measured from GPS. Without location this '
                         'app cannot count a single metre, because there is no '
                         'other source for it.',
                   ),
                   const SizedBox(height: 14),
-                  const _Reason(
-                    icon: Icons.notifications_active_outlined,
-                    color: AppColors.warn,
-                    title: 'NOTIFICATIONS',
-                    body: 'Android needs this to keep the trip recording while '
-                        'the screen is off. It is not an alert you have to '
-                        'read. Deny it and the counter can freeze mid-stage.',
-                  ),
-                  const SizedBox(height: 14),
+                  // ANDROID ONLY, and it used to say so to iPhone users.
+                  //
+                  // Found on the first-ever iOS run: this card read "Android
+                  // needs this…" on an iPhone. It is also not merely wrong
+                  // wording — iOS does not use a notification permission to
+                  // keep location running in the background at all, that is
+                  // the `location` UIBackgroundMode. So the card asked an iOS
+                  // user to reason about a permission their phone will never
+                  // request, on the first screen they ever see.
+                  //
+                  // The screen still says "Two permissions" on Android and
+                  // "One permission" on iOS for the same reason.
+                  //
+                  // `defaultTargetPlatform`, NOT `dart:io Platform`: the io one
+                  // cannot be overridden, so a widget test could only ever see
+                  // the host machine and onboarding_test would have been
+                  // testing macOS copy. This one defaults to android under
+                  // flutter_test and is overridable per test.
+                  if (defaultTargetPlatform == TargetPlatform.android) ...[
+                    const _Reason(
+                      icon: Icons.notifications_active_outlined,
+                      color: AppColors.warn,
+                      title: 'NOTIFICATIONS',
+                      body: 'Android needs this to keep the trip recording '
+                          'while the screen is off. It is not an alert you '
+                          'have to read. Deny it and the counter can freeze '
+                          'mid-stage.',
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   const _Reason(
                     icon: Icons.lock_outline,
                     color: AppColors.info,
@@ -180,10 +206,14 @@ class _PermissionRationaleScreenState
                     ),
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'You can change either of these later in Android Settings, '
-                    'and the app still opens if you say no.',
-                    style: TextStyle(color: AppColors.textDim, fontSize: 12.5),
+                  Text(
+                    defaultTargetPlatform == TargetPlatform.android
+                        ? 'You can change either of these later in Android '
+                            'Settings, and the app still opens if you say no.'
+                        : 'You can change this later in iOS Settings, and the '
+                            'app still opens if you say no.',
+                    style: const TextStyle(
+                        color: AppColors.textDim, fontSize: 12.5),
                   ),
                 ],
               ),
@@ -238,9 +268,7 @@ class _Reason extends StatelessWidget {
                 Text(
                   body,
                   style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 14,
-                      height: 1.35),
+                      color: AppColors.textPrimary, fontSize: 14, height: 1.35),
                 ),
               ],
             ),
