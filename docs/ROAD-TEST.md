@@ -107,8 +107,25 @@ Drive **50 km or more** against measured markers.
 - **Lag:** the needle should now settle in about a second and behave the same on
   any phone. Does it still feel laggy?
 - **True north:** turn "Use true north" ON. It will say `MAG` until it has
-  learned the offset from GPS course — that needs roughly 20 seconds of driving
+  learned the offset from GPS course, which needs roughly 20 seconds of driving
   above 18 km/h. After that it should say `TRUE`. **Does it ever switch?**
+
+  Read this one carefully, because it used to be untrue. Before `[SA-V2 30]`
+  (C4) the calibration was never even created while the car was moving, and
+  moving is the only time it can learn, so on most drives it learned nothing and
+  said `MAG` forever. It now learns from app start whether or not the switch is
+  on, so turning the switch on mid drive should show `TRUE` almost immediately.
+- **The agreement threshold, and it is UNMEASURED.** `[SA-V2 31]` (C5) added a
+  second condition: `TRUE` now also requires the observations to agree with each
+  other, because twenty contradictory ones used to earn it exactly as readily as
+  twenty consistent ones. The numbers are 12 degrees of mean residual to earn
+  `TRUE` and 20 to lose it, and **both were reasoned, not measured.** This drive
+  is where they get real values.
+  - If the compass sits on `MAG` all day in a mount that is clearly fine, 12 is
+    too tight.
+  - If it says `TRUE` while the heading is visibly wrong, 12 is too loose.
+  - If the label flips between `TRUE` and `MAG` while driving, the band between
+    12 and 20 is too narrow.
 - **NOT fixed:** tilt compensation uses the raw accelerometer, so heading is
   expected to wander while accelerating, braking and cornering. **Does it?**
   That is the remaining known cause.

@@ -38,6 +38,8 @@ import '../../../core/utils/geo_math.dart';
 class HeadingCalibration {
   double _offsetDeg = 0;
   int _samples = 0;
+  double _residualDeg = 0;
+  bool _agreed = false;
 
   /// Degrees to ADD to a magnetic heading to get true north. Meaningless until
   /// [isLearned].
@@ -45,9 +47,31 @@ class HeadingCalibration {
 
   int get samples => _samples;
 
+  /// Rolling mean absolute distance between a fresh observation and the running
+  /// offset. Exposed rather than kept private because a gate nobody can read is
+  /// a gate nobody can debug on a road test.
+  double get residualDeg => _residualDeg;
+
   /// Whether enough consistent observations have accumulated to trust
   /// [offsetDeg] — and therefore whether the cluster may say TRUE.
-  bool get isLearned => _samples >= AppConstants.headingCalibrationSamples;
+  ///
+  /// The count used to be the whole test, which made the word "consistent"
+  /// above a claim the code never checked: twenty mutually contradictory
+  /// observations cleared the bar exactly as readily as twenty agreeing ones.
+  /// Hard-iron distortion from a magnetic phone mount is HEADING-DEPENDENT, so
+  /// that is an ordinary installation rather than a contrived one — the EMA
+  /// settles on an average that is wrong at every heading and the cluster says
+  /// TRUE about it.
+  ///
+  /// [_agreed] is latched with a band rather than compared directly, for the
+  /// same reason the heading source is: a residual sitting on a single
+  /// threshold would blink TRUE/MAG on alternate fixes, and a cluster whose
+  /// label blinks reads as a broken cluster. It is also allowed to go BACK to
+  /// false — a phone re-seated in its mount invalidates what was learned, and
+  /// continuing to assert TRUE afterwards is the failure this class exists to
+  /// prevent.
+  bool get isLearned =>
+      _samples >= AppConstants.headingCalibrationSamples && _agreed;
 
   /// Fold in one observation.
   ///
@@ -81,9 +105,25 @@ class HeadingCalibration {
       // around the dial.
       final err = GeoMath.angleDelta(_offsetDeg, delta);
       _offsetDeg += AppConstants.headingCalibrationSmoothing * err;
+      // Track how much the observations DISAGREE, at the same rate as the
+      // offset itself so the two are always describing the same window.
+      _residualDeg += AppConstants.headingCalibrationSmoothing *
+          (err.abs() - _residualDeg);
     }
     _offsetDeg = _wrapSigned(_offsetDeg);
     _samples++;
+
+    // Evaluated only once the count bar is met, because before that the
+    // residual EMA has barely converged and would read agreement into two or
+    // three samples that happened to line up.
+    if (_samples >= AppConstants.headingCalibrationSamples) {
+      if (!_agreed && _residualDeg <= AppConstants.headingCalibrationAgreeDeg) {
+        _agreed = true;
+      } else if (_agreed &&
+          _residualDeg > AppConstants.headingCalibrationDisagreeDeg) {
+        _agreed = false;
+      }
+    }
     return true;
   }
 
@@ -97,6 +137,8 @@ class HeadingCalibration {
   void reset() {
     _offsetDeg = 0;
     _samples = 0;
+    _residualDeg = 0;
+    _agreed = false;
   }
 
   /// Wrap to (-180, 180]. Declination is a small angle; a value near ±180 means

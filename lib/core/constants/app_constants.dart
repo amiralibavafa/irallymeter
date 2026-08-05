@@ -172,6 +172,23 @@ class AppConstants {
   /// chase a single bad fix.
   static const double headingCalibrationSmoothing = 0.15;
 
+  /// How far, on average, a fresh observation may land from the running offset
+  /// before the cluster is allowed to call the result TRUE.
+  ///
+  /// The count alone was a formality: twenty observations that agreed with
+  /// nothing cleared it exactly as readily as twenty that agreed with each
+  /// other. Hard-iron distortion from a magnetic mount is heading-dependent, so
+  /// that is a real installation, not a contrived one.
+  ///
+  /// Like the heading source in [headingGpsAcquireMps], acquire and release are
+  /// deliberately different numbers: a residual parked on a single threshold
+  /// would blink the TRUE/MAG label on alternate fixes.
+  ///
+  /// FIRST PASS — reasoned from plausible GPS-course and magnetometer noise,
+  /// NOT measured. docs/ROAD-TEST.md is where these earn their real values.
+  static const double headingCalibrationAgreeDeg = 12.0;
+  static const double headingCalibrationDisagreeDeg = 20.0;
+
   // ---- Tunnel handling / distance engine ----
   /// SPEC-v2 §15.1: "No location update received for more than 3 seconds,
   /// where updates are expected at 1 Hz." Long enough that a couple of skipped
