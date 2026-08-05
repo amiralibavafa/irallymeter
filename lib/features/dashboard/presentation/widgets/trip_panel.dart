@@ -93,7 +93,13 @@ class OdometerReadout extends ConsumerWidget {
     return InstrumentBox(
       label: 'ODO',
       child: Text(
-        Formatters.distance(meters, metric: metric),
+        // Matches Trip A/B rather than `Formatters.distance`, which switched
+        // between "0 m" and "12.34 km" as the value grew. Three distance
+        // readouts sit side by side on the cluster, and having one of them in a
+        // different unit and precision made a co-driver switch units
+        // mid-glance — and the format CHANGED under them as the odo climbed.
+        '${Formatters.trip(meters, metric: metric)} '
+            '${Formatters.tripUnit(metric: metric)}',
         style: TextStyle(
           color: odoColor,
           fontSize: 28,
