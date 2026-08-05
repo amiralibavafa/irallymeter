@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_clock.dart';
 import '../../distance/presentation/providers/distance_providers.dart';
@@ -137,14 +138,18 @@ class _CalibrationCard extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              // Four decimals at 34 px, nudged a digit at a time: without
+              // tabular figures the whole number reflows on every tap.
               Text(factor.toStringAsFixed(4),
                   style: const TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 34,
-                      fontWeight: FontWeight.w700)),
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: AppTheme.tabularFigures)),
               Text('${err >= 0 ? '+' : ''}${err.toStringAsFixed(2)}%',
                   style: TextStyle(
-                      color: err.abs() < 0.01 ? AppColors.ok : AppColors.warn)),
+                      color: err.abs() < 0.01 ? AppColors.ok : AppColors.warn,
+                      fontFeatures: AppTheme.tabularFigures)),
             ],
           ),
           const SizedBox(height: 12),

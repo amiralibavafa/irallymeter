@@ -14,7 +14,16 @@ class AppTheme {
   /// We rely on the platform's default font with `fontFeatures` tabular
   /// figures so digits never shift width as numbers change (critical for a
   /// speedometer that updates at 10 Hz).
-  static const List<FontFeature> _tabular = [FontFeature.tabularFigures()];
+  ///
+  /// PUBLIC because the text theme is not the only place live numbers are
+  /// drawn. Five readouts build their own [TextStyle] and so opted out of this
+  /// without meaning to: the GPS status text, every field of the GNSS HEALTH
+  /// panel, the calibration factor and its error, and the countdown target.
+  /// Each of them updates while the car is moving, which is exactly when a
+  /// shifting digit column is hardest to read.
+  static const List<FontFeature> tabularFigures = [
+    FontFeature.tabularFigures()
+  ];
 
   static ThemeData build(DisplayMode mode) {
     final bool night = mode == DisplayMode.night;
@@ -60,7 +69,7 @@ class AppTheme {
           fontWeight: w,
           height: 1.0,
           letterSpacing: -1,
-          fontFeatures: _tabular,
+          fontFeatures: tabularFigures,
         );
     return TextTheme(
       // Giant speed readout.

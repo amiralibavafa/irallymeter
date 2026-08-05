@@ -148,6 +148,39 @@ void main() {
       await _teardown(tester, container, gps, ticks);
     });
   });
+
+  group('C17 · the live numbers hold their column', () {
+    testWidgets('04 · panel figures are tabular', (tester) async {
+      // The theme applies tabular figures to the four `digital()` styles, and
+      // every one of those is on the cluster. This panel builds its own
+      // TextStyle, so its digits are proportional: each one has its own width
+      // and the whole row shuffles sideways as the values change.
+      //
+      // It matters here more than it looks. The panel refreshes at 1 Hz (that
+      // is C7), so a tester holding it open through a tunnel watches a column
+      // of numbers that will not sit still, and ROAD-TEST asks them to copy
+      // two of these down while the car is moving.
+      final gps = StreamController<GpsSample>();
+      final ticks = StreamController<int>();
+      final container = _container(storage, gps.stream, ticks.stream);
+
+      await _pump(tester, container);
+
+      for (var i = 1; i <= 3; i++) {
+        gps.add(_fix(tMs: i * 1000));
+        await _settle(tester);
+      }
+      ticks.add(1);
+      await _settle(tester);
+
+      final fixes = tester.widget<Text>(find.text('3'));
+      expect(fixes.style?.fontFeatures, contains(const FontFeature.tabularFigures()),
+          reason: 'FIXES is a _Field value, and _Field is what the whole GNSS '
+              'HEALTH panel is built from');
+
+      await _teardown(tester, container, gps, ticks);
+    });
+  });
 }
 
 ProviderContainer _container(

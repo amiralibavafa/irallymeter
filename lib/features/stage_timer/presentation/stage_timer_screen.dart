@@ -264,6 +264,9 @@ class _CountdownAdjust extends StatelessWidget {
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.2,
+                  // The target moves in 10-second steps, so the label either
+                  // holds its width or twitches with every tap.
+                  fontFeatures: AppTheme.tabularFigures,
                 ),
               ),
             ),

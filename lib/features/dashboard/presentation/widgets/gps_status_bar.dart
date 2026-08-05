@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../distance/presentation/providers/distance_providers.dart';
 import '../../../gps/domain/gps_sample.dart';
@@ -69,7 +70,15 @@ class GpsStatusBar extends ConsumerWidget {
               text,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: color, fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 0.5),
+              // The accuracy figure and the tunnel estimate both live in this
+              // string and both change every second.
+              style: TextStyle(
+                color: color,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+                fontFeatures: AppTheme.tabularFigures,
+              ),
             ),
           ),
         ],

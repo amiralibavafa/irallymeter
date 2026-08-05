@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_clock.dart';
 import '../../compass/presentation/providers/compass_providers.dart';
@@ -312,7 +313,10 @@ class _Field extends StatelessWidget {
                 style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: 18,
-                    fontWeight: FontWeight.bold)),
+                    fontWeight: FontWeight.bold,
+                    // Every figure on the GNSS HEALTH panel comes through
+                    // here, and the panel refreshes at 1 Hz.
+                    fontFeatures: AppTheme.tabularFigures)),
             if (hint != null)
               Text(hint!,
                   style: const TextStyle(
