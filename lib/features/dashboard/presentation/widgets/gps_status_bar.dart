@@ -30,6 +30,8 @@ class GpsStatusBar extends ConsumerWidget {
     final reconciling = ref.watch(reconcilingProvider);
     final dropped = ref.watch(gpsDropoutProvider).valueOrNull ?? true;
     final quality = ref.watch(fixQualityProvider);
+    // C14: a FAILED stream must not read the same as a quiet one.
+    final failed = ref.watch(gpsStreamErrorProvider) != null;
     final accuracy = ref.watch(accuracyProvider);
     final tunnelMeters =
         ref.watch(distanceEngineProvider.select((s) => s.tunnelMeters));
@@ -39,6 +41,7 @@ class GpsStatusBar extends ConsumerWidget {
       tunnel: tunnel,
       reconciling: reconciling,
       dropped: dropped,
+      failed: failed,
       quality: quality,
       accuracy: accuracy,
       tunnelMeters: tunnelMeters,
@@ -80,6 +83,7 @@ class GpsStatusBar extends ConsumerWidget {
     required bool tunnel,
     required bool reconciling,
     required bool dropped,
+    required bool failed,
     required FixQuality quality,
     required double accuracy,
     required double tunnelMeters,
@@ -91,6 +95,12 @@ class GpsStatusBar extends ConsumerWidget {
     }
     if (reconciling) {
       return (AppColors.info, Icons.sync, 'GPS SYNC');
+    }
+    // Checked BEFORE the dropout branch, because a failed stream also looks
+    // dropped and "GPS LOST" would send the crew looking for sky when the
+    // receiver is not the problem. A tunnel is silence; this is not.
+    if (failed) {
+      return (AppColors.danger, Icons.gps_off, 'GPS ERROR');
     }
     if (dropped || quality == FixQuality.none) {
       return (AppColors.danger, Icons.satellite_alt, 'GPS LOST');

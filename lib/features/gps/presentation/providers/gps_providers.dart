@@ -49,6 +49,14 @@ final rawGpsStreamProvider = StreamProvider<GpsSample>((ref) {
 /// dashboard is, so the stats cover the whole session.
 final gpsHealthProvider = Provider<GpsHealthStats>((ref) => GpsHealthStats());
 
+/// The active stream failure, or null when the receiver is merely quiet.
+///
+/// Separate from the dropout watchdog on purpose: a tunnel is silence and must
+/// keep reading GPS LOST, while a revoked permission or a dead sensor is a
+/// fault the crew can act on.
+final gpsStreamErrorProvider = Provider<String?>((ref) =>
+    ref.watch(gpsStateProvider).valueOrNull?.streamError);
+
 /// Processed display state: smoothed speed + heading + quality.
 ///
 /// Derived from [rawGpsStreamProvider] rather than re-subscribing to the
@@ -63,13 +71,33 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
   // Which source the heading is currently coming from. Latched deliberately,
   // with a hysteresis band — see the switch below.
   bool usingGpsCourse = false;
+  String? lastError;
   GpsSample? prev;
   final controller = StreamController<GpsState>();
 
   final health = ref.read(gpsHealthProvider);
   ref.listen<AsyncValue<GpsSample>>(rawGpsStreamProvider, (_, next) {
+    if (controller.isClosed) return;
+
+    // A FAILED stream is not the same as a quiet one, and this used to treat
+    // them identically: `next.valueOrNull` turns an AsyncError into null, so a
+    // revoked permission, a dead sensor and a platform exception were all
+    // silently skipped and the cluster went on showing its last good value
+    // until the dropout watchdog eventually said GPS LOST. The driver could
+    // not tell a broken receiver from a tunnel.
+    //
+    // The service retries internally, so what reaches here is a failure that
+    // survived that — worth surfacing rather than swallowing.
+    if (next.hasError) {
+      lastError = next.error.toString();
+      controller.add(GpsState.initial().copyWithError(lastError));
+      return;
+    }
+
     final s = next.valueOrNull;
-    if (s == null || controller.isClosed) return;
+    if (s == null) return;
+    // A fix arrived: whatever was wrong is over.
+    lastError = null;
     // §19 row 6 / stream-health measurement for the road test.
     health.add(s, DateTime.now());
 
@@ -131,6 +159,7 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
     }
 
     controller.add(GpsState(
+      streamError: lastError,
       smoothedSpeedMps: speed,
       headingDeg: smoothedHeading,
       accuracyM: s.accuracyM,

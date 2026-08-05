@@ -13,6 +13,24 @@ Future<void> main() async {
   // Keep the device screen on for the whole time the app is in the foreground —
   // a co-driver's cluster must never blank out mid-stage. This holds the screen
   // awake regardless of which page is showing.
+  //
+  // NEVER RELEASED, AND THAT IS THE DECISION — reviewed 2026-08-05 and kept.
+  //
+  // `wakelock_plus` maps to FLAG_KEEP_SCREEN_ON on Android and
+  // `idleTimerDisabled` on iOS, and BOTH only apply while the app is
+  // foregrounded. So the actual behaviour is "the screen does not sleep while
+  // the cluster is on screen", not a background battery leak, and there is
+  // nothing to release on pause that the platform does not already release.
+  //
+  // Scoping it to an active trip was considered and rejected: this app has no
+  // trip start/stop state (`TripState` holds only the two counters and the
+  // odometer, and the engine starts unconditionally), so scoping would mean
+  // inventing a product concept. The failure it would introduce is worse than
+  // the one it fixes — a screen that blanks while stopped at a control or in
+  // traffic is a cluster the crew cannot read at the moment they look down.
+  //
+  // The cost accepted in exchange: a phone left on the mount in a service park
+  // with the app open keeps its screen lit.
   await WakelockPlus.enable();
 
   // Keep the cluster awake while driving and bias to landscape (co-driver).

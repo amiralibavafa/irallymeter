@@ -16,6 +16,7 @@ class GpsState {
     required this.quality,
     required this.receivedAt,
     required this.hasFix,
+    this.streamError,
   });
 
   final double smoothedSpeedMps;
@@ -27,6 +28,34 @@ class GpsState {
   final FixQuality quality;
   final DateTime receivedAt;
   final bool hasFix;
+
+  /// Set when the position stream itself FAILED, as opposed to simply having
+  /// nothing to report.
+  ///
+  /// These were previously dropped: the provider read `next.valueOrNull`, so an
+  /// AsyncError became null and was skipped. That made a revoked permission, a
+  /// dead sensor and a platform exception all indistinguishable from "no fix
+  /// yet" — and a `0` meaning "the GPS is broken" looked exactly like a `0`
+  /// meaning "the car is stopped".
+  ///
+  /// Null in the normal case, including inside a tunnel: silence is not an
+  /// error.
+  final String? streamError;
+
+  /// Same state, tagged with a stream failure. Used by the provider so a broken
+  /// receiver reads differently from a quiet one.
+  GpsState copyWithError(String? error) => GpsState(
+        smoothedSpeedMps: smoothedSpeedMps,
+        headingDeg: headingDeg,
+        accuracyM: accuracyM,
+        latitude: latitude,
+        longitude: longitude,
+        altitudeM: altitudeM,
+        quality: quality,
+        receivedAt: receivedAt,
+        hasFix: hasFix,
+        streamError: error,
+      );
 
   static GpsState initial() => GpsState(
         smoothedSpeedMps: 0,
