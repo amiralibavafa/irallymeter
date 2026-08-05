@@ -56,6 +56,12 @@ class GpsHealthStats {
 
   /// Fold in a sample exactly as the app received it.
   void add(GpsSample s, DateTime now) {
+    // Counted here rather than left to a caller. `noteStall()` was public with
+    // ZERO call sites, so STREAM STALLS was permanently 0 and the road-test
+    // item that reads it could not have failed. Folding it into the one method
+    // every sample already flows through means it cannot be forgotten again.
+    if (s.stalled) noteStall();
+
     if (!s.hasFix || s.accuracyM <= 0) {
       // The watchdog's synthetic no-fix heartbeat, or an unusable reading.
       _noFixSamples++;

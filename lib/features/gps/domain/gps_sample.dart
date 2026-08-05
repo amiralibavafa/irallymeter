@@ -13,6 +13,7 @@ class GpsSample {
     required this.altitudeM,
     required this.hasFix,
     this.speedAccuracyMps = double.nan,
+    this.stalled = false,
   });
 
   final DateTime timestamp;
@@ -33,6 +34,23 @@ class GpsSample {
   /// Reported uncertainty on [speedMps] in m/s, or NaN when the platform gave
   /// none. SPEC-v2 §7.1 invalidates a speed whose accuracy is worse than 2 m/s.
   final double speedAccuracyMps;
+
+  /// True only on the synthetic sample emitted when the WATCHDOG tore down and
+  /// rebuilt a dead subscription.
+  ///
+  /// This exists to keep two things apart that otherwise look identical
+  /// downstream, because both arrive as a no-fix sample:
+  ///
+  ///   * a TUNNEL — silence with location services up the whole time. Normal,
+  ///     expected, and must never be counted as a fault.
+  ///   * a STALL — silence that persisted across services going off and back
+  ///     on, meaning the old subscription is dead.
+  ///
+  /// SPEC-v2 §19 row 6 is measured on the second one only, and `ROAD-TEST.md`
+  /// item 2 requires it to read zero THROUGH a tunnel. Without this flag the
+  /// health panel cannot tell them apart, which is why its counter sat at zero
+  /// no matter what happened.
+  final bool stalled;
 
   /// Course over ground in degrees (0..360). NaN when not moving.
   final double headingDeg;
@@ -64,6 +82,19 @@ class GpsSample {
           speedAccuracyMps <= AppConstants.maxUsableSpeedAccuracyMps);
 
   /// Empty/no-fix sample used as the stream's initial value.
+  /// The watchdog rebuilt a dead subscription. Counted by [GpsHealthStats].
+  factory GpsSample.stalled() => GpsSample(
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+        latitude: 0,
+        longitude: 0,
+        speedMps: 0,
+        headingDeg: double.nan,
+        accuracyM: -1,
+        altitudeM: 0,
+        hasFix: false,
+        stalled: true,
+      );
+
   factory GpsSample.noFix() => GpsSample(
         timestamp: DateTime.fromMillisecondsSinceEpoch(0),
         latitude: 0,

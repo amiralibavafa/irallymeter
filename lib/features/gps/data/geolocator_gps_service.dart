@@ -208,7 +208,9 @@ class GeolocatorGpsService implements GpsRepository {
         stalled = true;
         // ignore: avoid_print
         print('iRallyMeter: GPS stream stalled ($e) — re-subscribing…');
-        yield GpsSample.noFix();
+        // MARKED, unlike the tunnel heartbeat below. This is the only place a
+        // stall is emitted, and it is what GNSS HEALTH counts.
+        yield GpsSample.stalled();
       } catch (e) {
         // The foreground service can fail to start on Android 13+ when the
         // POST_NOTIFICATIONS permission is denied. Drop the FGS requirement for
