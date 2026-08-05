@@ -130,7 +130,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
             ],
           ),
-          if (recording.recording)
           if (_tilesFailed)
             Positioned(
               top: 12,
@@ -164,6 +163,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
               ),
             ),
+          if (recording.recording)
             const Positioned(top: 12, left: 12, child: _RecBadge()),
           // CAP heading instrument, relocated here from the home cluster.
           const Positioned(
