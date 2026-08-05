@@ -26,9 +26,19 @@ class StageTimerScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.base,
       appBar: AppBar(
+        // Flexible + ellipsis because 'STAGE TIMER' is the longest title in
+        // the app and a narrow phone in portrait cannot fit it beside the
+        // clock and the back button. The clock wins the space: on this screen
+        // the time is the instrument and the word is just a label.
         title: Row(
           mainAxisSize: MainAxisSize.min,
-          children: const [AppClock(), SizedBox(width: 12), Text('STAGE TIMER')],
+          children: const [
+            AppClock(),
+            SizedBox(width: 12),
+            Flexible(
+              child: Text('STAGE TIMER', overflow: TextOverflow.ellipsis),
+            ),
+          ],
         ),
         backgroundColor: AppColors.base,
       ),

@@ -36,11 +36,14 @@ class SectionLogScreen extends ConsumerWidget {
           children: [
             AppClock(),
             SizedBox(width: 12),
-            Text('SECTIONS',
-                style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.2)),
+            Flexible(
+              child: Text('SECTIONS',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2)),
+            ),
           ],
         ),
       ),

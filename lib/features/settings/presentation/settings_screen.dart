@@ -29,7 +29,14 @@ class SettingsScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Row(
           mainAxisSize: MainAxisSize.min,
-          children: const [AppClock(), SizedBox(width: 12), Text('SETTINGS')],
+          children: const [
+            AppClock(),
+            SizedBox(width: 12),
+            // Same reason as the stage timer: the clock is the
+            // instrument, the word is a label, so the label yields
+            // rather than overflowing on a narrow phone.
+            Flexible(child: Text('SETTINGS', overflow: TextOverflow.ellipsis)),
+          ],
         ),
         backgroundColor: AppColors.base,
       ),
