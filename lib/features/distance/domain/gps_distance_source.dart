@@ -213,7 +213,21 @@ class GpsDistanceSource {
       // reported something unusable — negative, non-finite, or with an accuracy
       // worse than 2 m/s. Doppler is measured independently of position and is
       // materially better than a difference quotient at a 1 Hz update rate.
-      speedMps: s.hasValidDopplerSpeed ? s.speedMps : impliedSpeed,
+      // `dopplerUsable`, NOT `hasValidDopplerSpeed`. The two differ on exactly
+      // one input and it is the one that matters: a receiver reporting 0.0
+      // because it does not support Doppler at all. `hasValidDopplerSpeed`
+      // calls that valid, so this used to emit 0.0 while the car was moving.
+      //
+      // The emitted speed is not cosmetic — DistanceEngine copies it into
+      // `_gpsSpeedMps` and SEEDS TUNNEL ESTIMATION with it. So on those
+      // devices the app measured open road correctly from `impliedSpeed`
+      // above, then entered a tunnel anchored at zero and accrued NOTHING for
+      // its whole length. Tunnels are the point of this revision.
+      //
+      // The distinction is already made three lines up for `validSpeed`; this
+      // is the same C6 separation (trustworthy vs preferred) that the display
+      // path needed, not carried through to the emit site.
+      speedMps: dopplerUsable ? s.speedMps : impliedSpeed,
       source: DistanceSource.gps,
     );
   }
