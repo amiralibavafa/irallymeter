@@ -156,6 +156,18 @@ Drive **50 km or more** against measured markers.
 - **Android battery optimisation ON.** Same drive. This is §18.4's "one
   remaining platform issue" and it cannot be solved in code.
 - **iOS.** The project builds for the simulator and has never been run there.
+- **ORIENTATION, and this one has a claim attached that could not be verified.**
+  `[SA-V3 6]` changed the app from landscape-locked to no-preference, so Android
+  decides: upright phone shows portrait, a windscreen mount rotates to the wide
+  cluster. **Launching portrait IS verified. Rotating to landscape IS NOT** —
+  the emulator's rotation stopped responding mid-test and the result could not
+  be reproduced, so it is not being claimed.
+
+  Mount the phone in landscape and confirm the wide cluster appears, then pick
+  it up and confirm it returns to portrait. If it will not rotate at all, the
+  empty `setPreferredOrientations` list is not resolving to
+  `SCREEN_ORIENTATION_UNSPECIFIED` on your device and that is a code fix, not a
+  setting.
 - **A fresh install.** Watch for the first-run splash hang (P1). It did not
   reproduce on a clean reinstall, so it is an intermittent race — if you ever see
   the app stuck on the Flutter logo, that is it, and it is worth reporting.
