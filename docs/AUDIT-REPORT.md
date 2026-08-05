@@ -11,6 +11,20 @@ Phases 0–5 (Claude's half). `origin/main` never touched.
 
 ---
 
+## 0. Corrections to earlier claims in this repo
+
+Recorded here rather than by rewriting history, because the commits below are
+pushed and this branch does not rewrite pushed history.
+
+**`914b75a` (`[SA-V2 18]`) opens with "It is needed, and that is not what he
+was looking at."** The second half stands: the map was showing a REC light on a
+cold launch with nothing recording, which is the defect that commit fixes. **The
+first half was asserted without checking and is wrong.** `docs/SPEC-v2.md` line
+297 lists "GPX route import, stage creation" under **possible future** map
+features, so route recording is not a current spec requirement. Whether it
+belongs in v1 is now question **B9** in `docs/QUESTIONS-FOR-AMIRALI.md`, and it
+is Amirali's call, not ours. Nothing was removed.
+
 ## 1. Baseline vs final
 
 | | Baseline (`c151ca2`) | Final (`8a05172`) |

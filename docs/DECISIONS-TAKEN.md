@@ -139,6 +139,18 @@ palette is built for driving at night.
 
 ---
 
+## One question this raised, deliberately NOT decided
+
+**B9 — route recording / GPX in v1.** Saam asked whether the recording was
+needed. The thing he was looking at was a defect of ours (a REC light on a cold
+launch, fixed in `[SA-V2 18]`), but the underlying question is real: the spec
+lists GPX import as a *possible future* feature, and the code is 380 lines of
+Amirali's, untouched by this branch.
+
+It was **not** removed. Deleting a working feature the owner wrote is the same
+category as the four left open above — a product call, not a craft one. Added to
+`docs/QUESTIONS-FOR-AMIRALI.md` with a recommendation to keep.
+
 ## Status
 
 `SA-V2`, **322 pass / 1 skip / 0 fail**, `flutter analyze` at its 2 pre-existing

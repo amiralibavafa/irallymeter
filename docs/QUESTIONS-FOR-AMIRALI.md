@@ -81,6 +81,30 @@ Settings, or leave it?** My recommendation is the Settings button, because
 someone who taps DON'T ALLOW by accident currently has a dead app and no clue
 why.
 
+**B9 — is ROUTE RECORDING / GPX meant to be in v1 at all?**
+Saam looked at the map and asked whether the recording is needed. Two separate
+answers, and the first one was a defect on our side rather than a judgement:
+
+*What was actually wrong:* the map was showing a REC light on a cold launch with
+nothing recording. That was a bug I introduced and it is fixed (`[SA-V2 18]`).
+So the thing that prompted the question is gone.
+
+*The real question, which is yours:* **`docs/SPEC-v2.md` line 297 lists "GPX
+route import, stage creation" under POSSIBLE FUTURE map features**, not current
+ones. The feature is 380 lines in `lib/features/route_log`, all yours from the
+initial commit, untouched by this branch, and wired into two screens (the map
+FAB plus badge, and the Settings session list with IMPORT GPX).
+
+We did **not** remove it, on purpose. It works, it is your code, and deleting a
+feature the owner wrote is a product call rather than an audit finding. But it
+is outside the spec we audited against, it is one more surface to check on the
+road test, and saved sessions accumulate without a cap.
+
+**Keep it in v1, or cut it and bring it back with stage creation later?** Our
+recommendation is keep: a recorded stage track and GPX import are genuinely
+useful for rally, and the cost is small. Removal is clean if you disagree —
+self-contained folder plus two call sites.
+
 **B6 — confirm two floors are deliberate**, because Flutter's migrators keep
 trying to raise them and I keep reverting them:
 `minSdk = 23` (Android 6.0) and `IPHONEOS_DEPLOYMENT_TARGET = 12.0`. Raising
