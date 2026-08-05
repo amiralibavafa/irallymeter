@@ -48,7 +48,7 @@
 
 <h1>iRallyMeter</h1>
 <p class="sub">Audit and hardening report for Amirali &middot; 5 August 2026<br>
-Prepared by Saam &middot; branch <code>SA-V3</code> at <code>90920ca</code></p>
+Prepared by Saam &middot; branch <code>SA-V3</code>, latest commit</p>
 
 <div class="box">
   <p style="margin:0"><strong>How to read this.</strong> Every number here is either
@@ -79,12 +79,18 @@ Saam's call, not mine.</p>
   <tr>
     <td><code>SA-V3</code></td>
     <td>Branches off <code>SA-V2</code>. Polish, test infrastructure, the first iOS build, and the fixes from two external code reviews.</td>
-    <td>50 files, +2,223 / &minus;198</td>
+    <td>50 files, +2,223 / &minus;198<br><span class="muted">excluding this report</span></td>
   </tr>
 </table>
 
-<p class="muted">99 commits in total against <code>main</code>. Each one carries the
-reasoning and, where behaviour changed, the test that failed before the fix.</p>
+<p><strong><code>SA-V3</code> already contains everything in <code>SA-V2</code></strong>, because it
+branches off it. Merging <code>SA-V3</code> gives you all of the work. Merging <code>SA-V2</code>
+alone gives you the correctness fixes and none of the discretionary changes, which is the reason
+the split exists.</p>
+
+<p class="muted">99 commits in total against <code>main</code>, 20 of them on
+<code>SA-V3</code>. Each one carries the reasoning and, where behaviour changed, the test
+that failed before the fix.</p>
 
 <h2>2. The metrics</h2>
 
