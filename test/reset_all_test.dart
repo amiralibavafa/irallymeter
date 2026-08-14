@@ -28,6 +28,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:irallymeter/core/di/providers.dart';
 import 'package:irallymeter/core/storage/storage_service.dart';
+import 'package:irallymeter/features/distance/domain/distance_delta.dart';
+import 'package:irallymeter/features/trip/data/trip_repository.dart';
 import 'package:irallymeter/features/trip/domain/trip_state.dart';
 import 'package:irallymeter/features/trip/presentation/providers/trip_providers.dart';
 
@@ -104,21 +106,93 @@ void main() {
     });
 
     test('02 · it survives a reload, so nothing drips back', () async {
-      // resetTrip settles the reconciler first, because metres owed from before
-      // a reset belong to the leg that is ending. If resetAll skipped that, a
-      // post-tunnel balance would drip into the freshly zeroed counters over the
-      // next seconds and "reset everything" would quietly not stay at zero.
-      final container = makeContainer();
+      // THIS TEST WAS NAMED "survives a reload" AND NEVER RELOADED ANYTHING.
+      // Codex caught it. It asserted against the in-memory state it had just
+      // written, so a `resetAll` that never reached disk would have passed —
+      // which is the same vacuous-precondition failure as test 01, in the same
+      // file, found the same day.
+      var container = makeContainer();
+      await container.read(tripRepositoryProvider).save(
+            const TripState(tripA: 5000, tripB: 900, odometer: 42000),
+          );
+      container.dispose();
+
+      container = makeContainer();
+      expect(container.read(tripProvider).odometer, greaterThan(0),
+          reason: 'precondition: something to lose');
+
+      await container.read(tripProvider.notifier).resetAll();
+      container.dispose();
+
+      // THE RELOAD THE NAME PROMISES. A fresh container reads from disk, so
+      // this fails if resetAll returned before its write landed.
+      container = makeContainer();
+      final reloaded = container.read(tripProvider);
+      expect(reloaded.tripA, 0);
+      expect(reloaded.tripB, 0);
+      expect(reloaded.odometer, 0,
+          reason: 'the reset did not reach disk, so a restart resurrects the '
+              'counters the crew believed they had cleared');
+      container.dispose();
+    });
+
+    test('03 · a tunnel correction is persisted immediately', () async {
+      // THE P1. Instant payout emits the whole residual in ONE delta and then
+      // clears. Trip persistence is throttled to `tripPersistInterval` and only
+      // re-triggers on further movement, so if the car stops at the tunnel
+      // mouth that single correction can sit dirty and never reach disk. A
+      // process kill then rolls the counters back to their pre-tunnel values
+      // and the whole tunnel's distance is gone.
+      //
+      // The smooth payout hid this by emitting deltas for 15-60 s, one of which
+      // would cross the interval. Making the payout instant removed that
+      // accident, so the durability now has to be deliberate.
+      var container = makeContainer();
+      await container.read(tripRepositoryProvider).save(
+            const TripState(tripA: 1000, tripB: 1000, odometer: 1000),
+          );
+      container.dispose();
+
+      container = makeContainer();
       final notifier = container.read(tripProvider.notifier);
 
-      notifier.adjust(TripCounter.a, 5000);
-      notifier.resetAll();
-      final immediately = container.read(tripProvider);
+      // ARM THE THROTTLE FIRST, or this test proves nothing.
+      //
+      // `_lastPersist` starts at the epoch, so the FIRST delta of any kind
+      // always clears the interval and persists. Without this line the
+      // correction below is saved by accident and the test stays green with the
+      // fix removed — which is exactly what happened on the first attempt, the
+      // FIFTH vacuous pass in this codebase. One ordinary movement delta puts a
+      // real timestamp on `_lastPersist` so the throttle is genuinely active
+      // when the correction arrives, which is the state a car in a tunnel is in.
+      notifier.debugApplyDelta(DistanceDelta(
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+        meters: 10,
+        dt: const Duration(seconds: 1),
+        speedMps: 10,
+        source: DistanceSource.gps,
+        moving: true,
+      ));
 
-      expect(immediately.tripA, 0);
-      expect(immediately.tripB, 0);
-      expect(immediately.odometer, 0,
-          reason: 'anything left owing would reappear here');
+      // Drive a correction through the same entry point the engine uses: a
+      // delta with dt == zero is what `DistanceDelta.correction` produces.
+      notifier.debugApplyDelta(DistanceDelta.correction(
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+        meters: 350,
+        speedMps: 20,
+      ));
+
+      // READ THE DISK WITHOUT DISPOSING. This is the whole point and the second
+      // thing that made this test vacuous: `ref.onDispose` flushes dirty state,
+      // so a clean container teardown SAVES the correction and the test passes
+      // against the defect. The failure Codex describes is a PROCESS KILL,
+      // where no dispose ever runs — so the only honest check is what is on
+      // disk right now, while the app is still notionally alive.
+      final onDisk = TripRepository(storage).load();
+
+      expect(onDisk.tripA, closeTo(1360, 1),
+          reason: 'the correction that recovered a tunnel was still sitting '
+              'dirty in memory. A process kill here loses the whole tunnel');
       container.dispose();
     });
   });

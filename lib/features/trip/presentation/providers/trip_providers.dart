@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/constants/app_constants.dart';
@@ -66,8 +67,31 @@ class TripController extends Notifier<TripState> {
       tripB: state.tripB + calibrated,
       odometer: state.odometer + calibrated,
     );
-    _markDirtyAndMaybePersist();
+
+    // A CORRECTION IS PERSISTED IMMEDIATELY, ordinary movement is throttled.
+    //
+    // `dt == Duration.zero` is what `DistanceDelta.correction` produces, and a
+    // correction is the post-tunnel residual: rare, large, and unrepeatable.
+    //
+    // Since the payout became INSTANT it arrives as ONE delta and the
+    // reconciler then holds nothing. Ordinary throttling only flushes on
+    // further movement, so a car that stops at the tunnel mouth could leave the
+    // whole correction dirty in memory until the process died, rolling the
+    // counters back to their pre-tunnel values. The smooth payout hid this by
+    // accident, emitting deltas for 15-60 s one of which crossed the interval;
+    // removing the drip removed the accident, so the durability has to be
+    // deliberate. Found by Codex on the SA-V3 review.
+    if (d.dt == Duration.zero) {
+      _persistNow();
+    } else {
+      _markDirtyAndMaybePersist();
+    }
   }
+
+  /// Feed one delta as the engine would. Test-only seam for the correction
+  /// durability path, which is otherwise only reachable through a live tunnel.
+  @visibleForTesting
+  void debugApplyDelta(DistanceDelta d) => _onDelta(d);
 
   void _markDirtyAndMaybePersist() {
     _dirty = true;
@@ -77,10 +101,13 @@ class TripController extends Notifier<TripState> {
     }
   }
 
-  void _persistNow() {
+  /// Returns the write so a DESTRUCTIVE action can await it. Fire-and-forget is
+  /// fine for routine throttled saves; it is not fine for a reset, which must
+  /// not report success before it is durable.
+  Future<void> _persistNow() {
     _lastPersist = DateTime.now();
     _dirty = false;
-    _repo.save(state);
+    return _repo.save(state);
   }
 
   // ---- User actions (persist immediately — these are deliberate edits) ----
@@ -125,14 +152,17 @@ class TripController extends Notifier<TripState> {
   /// blank for a fraction of a second and the next fix would restore it. The
   /// AVERAGE speed is an accumulator like the trips, so that is what is cleared,
   /// by the caller, which owns that provider.
-  void resetAll() {
+  Future<void> resetAll() {
     // Flush the reconciler for the same reason [resetTrip] does: those metres
     // were covered BEFORE this reset, so leaving them queued would drip them
     // into the freshly zeroed counters over the following seconds and a "reset
     // everything" would quietly not stay at zero.
     _settleOwedMetres();
     state = state.copyWith(tripA: 0, tripB: 0, odometer: 0);
-    _persistNow();
+    // AWAITED, unlike every other action here. This one is irreversible and the
+    // crew is told it happened; returning before the write lands means a
+    // restart can resurrect counters they believe they cleared. Codex, SA-V3.
+    return _persistNow();
   }
 
   void resetOdometer() {
