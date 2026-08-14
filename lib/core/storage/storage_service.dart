@@ -24,6 +24,11 @@ class StorageService {
 
   Future<void> write(String key, Object? value) => _box.put(key, value);
 
+  /// Commit several keys in ONE transaction, so a crash cannot leave a caller's
+  /// values half-written. Used by the trip repository, where Trip A, Trip B and
+  /// the odometer are one fact and must move together.
+  Future<void> writeAll(Map<String, Object?> entries) => _box.putAll(entries);
+
   Future<void> delete(String key) => _box.delete(key);
 
   List<String> readStringList(String key) {

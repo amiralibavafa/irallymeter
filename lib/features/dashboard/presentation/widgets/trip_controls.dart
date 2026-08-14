@@ -35,8 +35,10 @@ class TripControls extends ConsumerWidget {
         // discoverable instead of hidden.
         _ResetButton(
           label: 'RST ALL\nHOLD',
-          onLongPress: () {
-            notifier.resetAll();
+          onLongPress: () async {
+            // AWAITED. `resetAll` was made awaitable and then not awaited here,
+            // so the screen showed zero before the write landed. Codex round 2.
+            await notifier.resetAll();
             // The average speed is the third accumulator on the cluster and is
             // what "speed" in the request can actually mean; the live
             // speedometer is a GPS reading and cannot be zeroed.

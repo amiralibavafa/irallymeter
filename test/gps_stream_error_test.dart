@@ -137,6 +137,40 @@ void main() {
               'reading 16 m/s is worse than reading nothing');
     });
 
+    test('06 · a DIRECT stream error drops the baseline too', () async {
+      // TWO PATHS REACH "the stream failed" AND THE FIX ONLY COVERED ONE.
+      // Test 05 emits a MARKED SAMPLE, which is what the real service produces.
+      // This one emits a genuine AsyncError, which is what any other repository
+      // produces — and that branch kept the stale baseline, so the same
+      // 60 km/h-while-stationary reading was still reachable.
+      //
+      // Codex round 2 found it. Test 05 passing with this fix removed is
+      // precisely why a second test is needed rather than a wider assertion.
+      final c = StreamController<GpsSample>();
+      final container = ProviderContainer(overrides: [
+        gpsRepositoryProvider.overrideWithValue(_FakeGps(c.stream)),
+      ]);
+      final sub = container.listen(gpsStateProvider, (_, __) {},
+          fireImmediately: true);
+
+      c.add(_zeroDopplerFix(lat: 46.0, tMs: 0));
+      await _pump();
+
+      c.addError(Exception('platform failure'));
+      await _pump();
+
+      c.add(_zeroDopplerFix(lat: 46.018, tMs: 120000));
+      await _pump();
+      final speed = container.read(gpsStateProvider).valueOrNull?.smoothedSpeedMps ?? -1;
+
+      sub.close();
+      container.dispose();
+
+      expect(speed, lessThan(2.0),
+          reason: 'the car is stationary. The AsyncError path kept the '
+              'pre-outage position as the differencing baseline');
+    });
+
     test('04 · an error from the REAL service reaches the error UI', () async {
       // TESTS 01-03 ALL PASS AND STILL MISS THE PRODUCTION PATH. They inject a
       // fake repository that puts an error straight onto the stream, so they

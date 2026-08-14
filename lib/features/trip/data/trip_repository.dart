@@ -14,9 +14,18 @@ class TripRepository {
     );
   }
 
-  Future<void> save(TripState s) async {
-    await _storage.write(StorageKeys.tripA, s.tripA);
-    await _storage.write(StorageKeys.tripB, s.tripB);
-    await _storage.write(StorageKeys.odometer, s.odometer);
-  }
+  /// ONE write, not three.
+  ///
+  /// This was three sequential `put`s, so a process kill between them left a
+  /// PARTIAL state on disk: Trip A reset and the odometer not, or a tunnel
+  /// correction landed on one counter and not the others. The three values are
+  /// a single fact about the vehicle and have to move together.
+  ///
+  /// `putAll` commits them in one Hive transaction, so a reader sees either all
+  /// three or none. Codex round 2.
+  Future<void> save(TripState s) => _storage.writeAll({
+        StorageKeys.tripA: s.tripA,
+        StorageKeys.tripB: s.tripB,
+        StorageKeys.odometer: s.odometer,
+      });
 }

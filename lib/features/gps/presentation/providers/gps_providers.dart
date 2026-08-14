@@ -99,6 +99,12 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
     // survived that — worth surfacing rather than swallowing.
     if (next.hasError) {
       lastError = next.error.toString();
+      // SAME BASELINE DROP AS THE MARKED-SAMPLE BRANCH BELOW, and the reason
+      // this line exists twice is worth stating: the fix went into that branch
+      // only, so any repository emitting an AsyncError still differenced the
+      // first recovered fix against a pre-outage position. Codex round 2. Two
+      // paths reach "the stream failed" and BOTH invalidate the baseline.
+      prev = null;
       controller.add(GpsState.initial().copyWithError(lastError));
       return;
     }

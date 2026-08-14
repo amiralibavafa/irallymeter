@@ -23,6 +23,7 @@
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -188,11 +189,27 @@ void main() {
       // against the defect. The failure Codex describes is a PROCESS KILL,
       // where no dispose ever runs — so the only honest check is what is on
       // disk right now, while the app is still notionally alive.
-      final onDisk = TripRepository(storage).load();
+      // CLOSE AND REOPEN THE BOX, and check ALL THREE counters.
+      //
+      // Codex round 2 was right that the earlier version proved less than its
+      // name claimed: it read the same OPEN Hive box and asserted only Trip A,
+      // so it could not distinguish a durable commit from an in-memory one, and
+      // could not see a PARTIAL write at all. `save` was three sequential puts
+      // until this round, so a kill between them left Trip A updated and the
+      // odometer stale — a state this assertion now rules out.
+      await Hive.close();
+      final reopened = await StorageService.init();
+      final onDisk = TripRepository(reopened).load();
 
       expect(onDisk.tripA, closeTo(1360, 1),
           reason: 'the correction that recovered a tunnel was still sitting '
               'dirty in memory. A process kill here loses the whole tunnel');
+      expect(onDisk.tripB, closeTo(1360, 1),
+          reason: 'a PARTIAL write: Trip A took the correction and Trip B did '
+              'not, which three separate puts allowed');
+      expect(onDisk.odometer, closeTo(1360, 1),
+          reason: 'the odometer missed the correction, so the lifetime total '
+              'silently disagrees with the trips');
       container.dispose();
     });
   });

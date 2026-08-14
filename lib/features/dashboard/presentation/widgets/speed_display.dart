@@ -91,12 +91,29 @@ class SpeedDisplay extends ConsumerWidget {
         // and the FittedBox engages for "188" and not for "8" — the exact
         // collapse this cap exists to prevent, returning under a supported
         // device setting. Codex, SA-V3.
+        //
+        // THE SCALER IS NOT NECESSARILY LINEAR. `scale(1.0)` was treated as a
+        // universal multiplier, but Flutter's system scaler may be non-linear,
+        // so `scale(fontSize) != fontSize * scale(1)`. The 1.5x test passed
+        // because linear is exactly what it exercises. Codex round 2.
+        //
+        // So ASK THE SCALER what the candidate size actually becomes, and
+        // shrink until three of them fit. A handful of iterations converges and
+        // it is correct for any scaler, linear or not, because it uses the
+        // scaler's own answer rather than a model of it.
         const maxDigits = 3;
-        final scale = MediaQuery.textScalerOf(context).scale(1.0);
-        final byWidth = c.maxWidth.isFinite
-            ? c.maxWidth / (maxDigits * (scale <= 0 ? 1.0 : scale))
-            : double.infinity;
-        final size = math.min(byHeight, byWidth);
+        final scaler = MediaQuery.textScalerOf(context);
+        var size = byHeight;
+        if (c.maxWidth.isFinite) {
+          final budget = c.maxWidth / maxDigits;
+          for (var i = 0; i < 12 && scaler.scale(size) > budget; i++) {
+            final scaled = scaler.scale(size);
+            if (!scaled.isFinite || scaled <= 0) break;
+            // Step down by the overshoot ratio, with a floor so a pathological
+            // scaler cannot spin this into a zero-size readout.
+            size = math.max(8.0, size * (budget / scaled));
+          }
+        }
 
         return Column(
       mainAxisSize: MainAxisSize.min,
