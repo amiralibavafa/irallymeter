@@ -243,7 +243,7 @@ class TripController extends Notifier<TripState> {
     // into the freshly zeroed counters over the following seconds and a "reset
     // everything" would quietly not stay at zero.
     _settleOwedMetres();
-    final cleared = state.copyWith(tripA: 0, tripB: 0, odometer: 0);
+    state = state.copyWith(tripA: 0, tripB: 0, odometer: 0);
     // PERSIST FIRST, THEN PUBLISH.
     //
     // Awaiting the write was not enough on its own: the state was published
@@ -255,21 +255,16 @@ class TripController extends Notifier<TripState> {
     // Writing first inverts that: the counters only read zero once zero is what
     // is on disk. On failure the exception propagates and the display still
     // shows the real values, which is the honest outcome. Codex round 3.
-    // THROUGH THE SAME QUEUE AS EVERY OTHER WRITE. This called `_repo.save`
-    // directly, which is not serialization at all: a delta's write queued a
-    // moment earlier could land AFTER the reset and resurrect the counters the
-    // crew had just cleared. "Cannot interleave" is only true if there is
-    // exactly one path. Codex round 6.
-    final queued = _writeChain.then((_) async {
-      await _repo.save(cleared);
-      _lastPersist = DateTime.now();
-      // Only claim clean if nothing arrived while we wrote — a delta landing
-      // mid-reset must not be silently overwritten by the precomputed zero.
-      if (identical(state, cleared) || _dirty == false) _dirty = false;
-      state = cleared;
-    });
-    _writeChain = queued.catchError((Object _) {});
-    return queued;
+    // ONE WRITE PATH, NO SPECIAL CASE. This had its own queue callback so it
+    // could publish AFTER the write, and that hand-rolled path cost two things
+    // the shared one gives free: a delta arriving mid-write was overwritten by
+    // the precomputed zero state, and a FAILED reset never scheduled a retry.
+    //
+    // Publishing before the write is now safe precisely because the retry loop
+    // exists: durability is guaranteed by `_persistNow` re-arming until the
+    // bytes land, rather than by holding the UI back. Every other mutation
+    // already works this way, and a second path is what produced the race.
+    return _persistNow();
   }
 
   void resetOdometer() {

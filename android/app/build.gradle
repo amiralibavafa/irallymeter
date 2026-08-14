@@ -71,9 +71,21 @@ android {
             // ⚠ THE KEYSTORE CANNOT BE REPLACED LATER WITHOUT THAT SAME WIPE,
             // and if it is lost the app can never be updated again. See
             // docs/SIGNING.md.
-            signingConfig = keystoreProperties['storeFile'] != null
-                ? signingConfigs.release
-                : signingConfigs.debug
+            // FAIL CLOSED. This used to fall back to debug signing when the
+            // key was missing, which made a SUCCESSFUL release build unsafe to
+            // distribute: it looked like a release, installed like a release,
+            // and then could never be updated with the real key without every
+            // tester uninstalling and losing their trips.
+            //
+            // A missing key is now a build error. Developers who do not have it
+            // can still use debug builds, which is what they want anyway; the
+            // only thing that breaks is producing a release nobody can update.
+            if (keystoreProperties['storeFile'] == null) {
+                throw new GradleException(
+                    "Release build requires android/key.properties. See docs/SIGNING.md. " +
+                    "Use a debug build if you do not have the signing key.")
+            }
+            signingConfig = signingConfigs.release
         }
     }
 }
@@ -81,3 +93,26 @@ android {
 flutter {
     source = "../.."
 }
+
+// ⚠ THE REAL FLOOR IS 24, AND ANDROID 6 IS NOT AVAILABLE. Pinned here because
+// Flutter's Android migrator rewrites `defaultConfig` on every native build.
+//
+// The source said `minSdk = 23` and a long comment above it called that a
+// deliberate product decision for older Iranian handsets. IT WAS NEVER TRUE OF
+// ANY BUILD. Forcing 23 fails the manifest merge outright:
+//
+//   uses-sdk:minSdkVersion 23 cannot be smaller than version 24 declared in
+//   library [:geolocator_android]
+//
+// So geolocator_android sets the floor, not us, and every APK ever produced
+// declared 24. The migrator rewriting the line to `flutter.minSdkVersion` was
+// masking a constraint rather than causing one.
+//
+// ⚠ THIS IS A PRODUCT FACT FOR AMIRALI: Android 6.0 devices cannot run this
+// app. Changing that means downgrading geolocator, which would give back the
+// GPS defects this revision exists to fix. Stated explicitly so nobody
+// "restores" a 23 that has never worked.
+//
+// VERIFY the built artifact, never the source:
+//   aapt2 dump badging build/app/outputs/flutter-apk/app-release.apk | grep minSdk
+android.defaultConfig.minSdkVersion = 24
