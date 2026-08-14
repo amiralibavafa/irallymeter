@@ -21,6 +21,15 @@ import '../../../core/constants/app_constants.dart';
 ///
 /// Pure Dart; the caller supplies the clock.
 class DistanceReconciler {
+  /// [instant] defaults to the app-wide switch. It is a parameter rather than a
+  /// bare constant read so BOTH behaviours stay under test: the §16.1 smooth
+  /// payout is still proven to work, which is what makes restoring the spec a
+  /// one-line change with evidence behind it rather than a leap.
+  DistanceReconciler({bool? instant})
+      : _instant = instant ?? AppConstants.reconcileInstant;
+
+  final bool _instant;
+
   double _remaining = 0;
   double _rate = 0; // metres per second
   DateTime? _lastAt;
@@ -50,6 +59,18 @@ class DistanceReconciler {
 
     _remaining += meters;
     _lastAt ??= now;
+
+    // INSTANT MODE — a deliberate deviation from §16.1, see
+    // [AppConstants.reconcileInstant] for who asked for it and what it costs.
+    // An infinite rate makes the `min(_rate * dtSec, _remaining)` in [take]
+    // resolve to the whole balance on the first tick with any elapsed time,
+    // which reuses the existing payout path rather than adding a second one
+    // that could drift out of step with it.
+    if (_instant) {
+      _large = _remaining > AppConstants.largeReconcileMeters;
+      _rate = double.infinity;
+      return meters;
+    }
 
     // SPEC-v2 §16.1: 15 s normally, 60 s once the residual exceeds 200 m. The
     // test is on the RUNNING TOTAL, not the increment just added, so two

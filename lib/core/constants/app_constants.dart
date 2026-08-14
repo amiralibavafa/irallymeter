@@ -333,7 +333,29 @@ class AppConstants {
   static const Duration reducedConfidenceAfter = Duration(seconds: 60);
   static const Duration lowConfidenceAfter = Duration(seconds: 180);
 
+  /// DELIBERATE DEVIATION FROM SPEC-v2 §16.1, requested 2026-08-13 after the
+  /// first real road test. **This is a product decision, not a defect fix, and
+  /// it needs Amirali's sign-off to become permanent.**
+  ///
+  /// §16.1 says to spread a post-tunnel correction over 15 s, or 60 s once it
+  /// exceeds 200 m, so the trip counter never visibly jumps while a co-driver is
+  /// reading it aloud. Amirali's father drove a real tunnel and reported that
+  /// the counter took 40 s to a minute to reach its true value, which is exactly
+  /// that clause working as written: a Niayesh-length tunnel easily owes more
+  /// than 200 m, so it took the 60 s tier.
+  ///
+  /// His verdict was that a co-driver waiting a minute to know the real distance
+  /// is worse than seeing the number move. Saam confirmed instant. So the
+  /// correction is now applied in full on the first tick after recovery.
+  ///
+  /// WHAT IS GIVEN UP, stated plainly so nobody rediscovers it as a bug: the
+  /// trip counter WILL jump at tunnel exit, by whatever the tunnel owed. That is
+  /// the precise behaviour §16.1 was written to prevent. [reconcileInstant] is
+  /// the single switch; set it false to restore the spec exactly.
+  static const bool reconcileInstant = true;
+
   /// SPEC-v2 §16.1: "Spread the correction linearly over 15 seconds."
+  /// Ignored while [reconcileInstant] is true.
   static const Duration reconcileWindow = Duration(seconds: 15);
 
   /// SPEC-v2 §16.1: "If the difference exceeds 200 m, spread it over 60 seconds

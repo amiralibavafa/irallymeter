@@ -270,8 +270,36 @@ void main() {
       expect(r.isActive, isFalse);
     });
 
+    test('17b · INSTANT mode pays the whole residual on the first tick', () {
+      // THE CURRENT SHIPPING BEHAVIOUR, and a deliberate deviation from §16.1.
+      //
+      // Amirali's father drove a real tunnel and found the counter took 40 s to
+      // a minute to reach its true value. That was §16.1 working exactly as
+      // written: a residual over 200 m takes the 60 s tier. His verdict was that
+      // a co-driver waiting a minute to learn the real distance is worse than
+      // watching the number move, and Saam confirmed instant.
+      //
+      // So the trip counter now JUMPS at tunnel exit. That is the precise
+      // behaviour §16.1 was written to prevent, it was given up on purpose, and
+      // test 17 below still proves the spec payout works for the day someone
+      // wants it back.
+      final r = DistanceReconciler(instant: true)..add(150, _t(0));
+
+      final first = r.take(_t(250));
+      expect(first, closeTo(150, 1e-6),
+          reason: 'instant means the whole balance on the first tick with any '
+              'elapsed time, not merely a faster drip');
+      expect(r.isActive, isFalse, reason: 'nothing may be left owing');
+      expect(r.take(_t(500)), 0,
+          reason: 'and it must not pay a second time');
+    });
+
     test('17 · payout never exceeds the rate ceiling (no visible jump)', () {
-      final r = DistanceReconciler()..add(150, _t(0)); // a large residual
+      // THE §16.1 CONTRACT, kept under test even though the app no longer runs
+      // in this mode. Flipping `AppConstants.reconcileInstant` back to false
+      // restores the spec, and this is the proof it still behaves.
+      final r = DistanceReconciler(instant: false)
+        ..add(150, _t(0)); // a large residual
 
       var last = _t(0);
       for (var t = 250; t <= 60000; t += 250) {
