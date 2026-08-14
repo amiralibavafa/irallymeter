@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -37,6 +39,14 @@ class TripController extends Notifier<TripState> {
   DateTime _lastPersist = DateTime.fromMillisecondsSinceEpoch(0);
   bool _dirty = false;
 
+  /// At most ONE write in flight. A second request chains behind the first
+  /// rather than racing it, so two saves cannot interleave and leave the older
+  /// snapshot winning on disk.
+  Future<void> _writeChain = Future<void>.value();
+
+  /// Armed only while something is owed after a FAILED write.
+  Timer? _retryTimer;
+
   @override
   TripState build() {
     _repo = ref.watch(tripRepositoryProvider);
@@ -49,7 +59,12 @@ class TripController extends Notifier<TripState> {
 
     // Flush to disk when this provider is torn down (app close / hot restart).
     ref.onDispose(() {
-      if (_dirty) _repo.save(state);
+      _retryTimer?.cancel();
+      _retryTimer = null;
+      // Best effort only: dispose cannot await, so this is a last flush rather
+      // than a guarantee. The guarantee is the retry loop above, which is why
+      // it exists.
+      if (_dirty) _repo.save(state).catchError((Object _) {});
     });
 
     return _repo.load();
@@ -116,18 +131,63 @@ class TripController extends Notifier<TripState> {
   /// then one key). None of that mattered while the completion contract itself
   /// was wrong: a durable write means the flag drops when the bytes land, not
   /// when the call is made.
+  /// SERIALIZED, AND RETRIED UNTIL IT LANDS.
+  ///
+  /// Marking the state dirty on failure was never a retry. Nothing was
+  /// scheduled, so the write only happened again if the car moved far enough to
+  /// trip the ordinary throttle — and a car that stops at a tunnel exit does
+  /// not move again. That left the entire tunnel correction unsaved, which is
+  /// the exact scenario three earlier rounds of persistence patching were
+  /// supposed to have closed. Codex round 5.
+  ///
+  /// Three properties, and all three are needed:
+  ///  * DIRTY BEFORE THE ATTEMPT — so a failure has something to retry. It used
+  ///    to be set only inside the error handler, which is too late for a
+  ///    correction whose caller never marked it in the first place.
+  ///  * SERIALIZED — one write at a time, so a slow save and a fast one cannot
+  ///    interleave and let the older snapshot win.
+  ///  * SCHEDULED — a timer re-arms while anything is owed, so recovery does
+  ///    not depend on the car moving.
   Future<void> _persistNow() {
+    _dirty = true;
+    final queued = _writeChain.then((_) => _writeOnce());
+    // The chain must never carry a failure forward, or one bad write poisons
+    // every save after it. The retry lives in `_writeOnce`, not here.
+    _writeChain = queued.catchError((Object _) {});
+    return queued;
+  }
+
+  Future<void> _writeOnce() async {
     final pending = state;
     _lastPersist = DateTime.now();
-    return _repo.save(pending).then((_) {
-      // Only claim it is clean if nothing further changed while we wrote.
-      if (identical(state, pending)) _dirty = false;
-    }, onError: (Object e, StackTrace st) {
-      // Stay dirty so the ordinary throttled path tries again. Losing measured
-      // distance without a word is the failure this exists to prevent.
-      _dirty = true;
+    try {
+      await _repo.save(pending);
+      // Only claim it is clean if nothing changed while we were writing.
+      if (identical(state, pending)) {
+        _dirty = false;
+        _retryTimer?.cancel();
+        _retryTimer = null;
+      } else {
+        _scheduleRetry();
+      }
+    } catch (e) {
+      _scheduleRetry();
       // ignore: avoid_print
-      print('iRallyMeter: trip save failed ($e) — staying dirty for retry');
+      print('iRallyMeter: trip save failed ($e) — retrying in '
+          '${AppConstants.tripPersistRetryDelay.inSeconds}s');
+      rethrow; // so an awaiting caller (a reset) learns it did not land
+    }
+  }
+
+  void _scheduleRetry() {
+    if (_retryTimer != null) return; // already armed
+    _retryTimer = Timer(AppConstants.tripPersistRetryDelay, () {
+      _retryTimer = null;
+      if (_dirty) {
+        // Swallowed: a failure re-arms the timer inside `_writeOnce`, and there
+        // is nobody to hand an error to on a background retry.
+        _persistNow().catchError((Object _) {});
+      }
     });
   }
 

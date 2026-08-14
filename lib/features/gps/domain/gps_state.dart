@@ -104,6 +104,12 @@ class GpsState {
 /// enough headroom to do both.
 class SpeedFilter {
   double _value = 0;
+
+  /// The value currently held, without folding in a new reading. Read when a
+  /// no-fix sample arrives: the cluster keeps showing the last measured speed
+  /// rather than a fabricated zero, but the filter is not fed a sample that
+  /// measured nothing.
+  double get value => _value;
   bool _seeded = false;
   DateTime? _lastAt;
 

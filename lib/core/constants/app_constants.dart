@@ -112,6 +112,18 @@ class AppConstants {
   /// Persist trip/odometer at most this often (battery + flash wear).
   static const Duration tripPersistInterval = Duration(seconds: 5);
 
+  /// How soon to try again after a FAILED trip save.
+  ///
+  /// Marking the state dirty on failure is not a retry — nothing was scheduled,
+  /// so the write only happened again if the car happened to move far enough to
+  /// trigger the ordinary throttle. A car that stops at a tunnel exit does not,
+  /// which left the whole tunnel correction unsaved. Codex round 5.
+  ///
+  /// Short, because the window this closes is "the process dies before the next
+  /// attempt", and cheap, because it only runs while something is actually
+  /// owed.
+  static const Duration tripPersistRetryDelay = Duration(seconds: 2);
+
   /// Manual correction step sizes (m).
   static const List<int> correctionSteps = [10, 100];
 

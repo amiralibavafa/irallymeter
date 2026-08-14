@@ -30,6 +30,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:irallymeter/core/di/providers.dart';
 import 'package:irallymeter/core/storage/storage_service.dart';
 import 'package:irallymeter/features/distance/domain/distance_delta.dart';
+import 'package:irallymeter/core/constants/app_constants.dart';
 import 'package:irallymeter/features/trip/data/trip_repository.dart';
 import 'package:irallymeter/features/trip/domain/trip_state.dart';
 import 'package:irallymeter/features/trip/presentation/providers/trip_providers.dart';
@@ -189,6 +190,11 @@ void main() {
       // against the defect. The failure Codex describes is a PROCESS KILL,
       // where no dispose ever runs — so the only honest check is what is on
       // disk right now, while the app is still notionally alive.
+      // Writes are now SERIALIZED through a chain, so they complete on a later
+      // microtask rather than synchronously. Give the save time to land before
+      // closing the box, which is what a real process does anyway.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
       // CLOSE AND REOPEN THE BOX, and check ALL THREE counters.
       //
       // Codex round 2 was right that the earlier version proved less than its
@@ -244,5 +250,69 @@ void main() {
       container.dispose();
     });
 
+    test('05 · a FAILED write is retried even when the car never moves again',
+        () async {
+      // THE SCENARIO THREE ROUNDS OF PERSISTENCE PATCHING NEVER CLOSED.
+      //
+      // A post-tunnel correction is consumed from the reconciler and never
+      // re-emitted, so if its write fails the metres exist only in memory.
+      // Marking the state dirty is not a retry: nothing was scheduled, and the
+      // ordinary throttle only fires on further MOVEMENT. A car that stops at
+      // the tunnel exit never moves again, so the correction sat unsaved until
+      // the process died. Codex round 5, and there was no failing-repository
+      // test in the suite at all.
+      final repo = _FlakyRepo(failures: 1);
+      // Test 03 closes the shared box to prove durability, so open a fresh one.
+      final fresh = await StorageService.init();
+      final container = ProviderContainer(overrides: [
+        storageProvider.overrideWithValue(fresh),
+        tripRepositoryProvider.overrideWithValue(repo),
+      ]);
+      final notifier = container.read(tripProvider.notifier);
+
+      // A tunnel correction: dt == zero is what DistanceDelta.correction makes.
+      notifier.debugApplyDelta(DistanceDelta.correction(
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+        meters: 350,
+        speedMps: 20,
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(repo.attempts, 1, reason: 'precondition: the first write failed');
+      expect(repo.saved, isNull,
+          reason: 'precondition: nothing has reached the repository yet');
+
+      // NOTHING ELSE HAPPENS. No movement, no further deltas — only time.
+      await Future<void>.delayed(
+          AppConstants.tripPersistRetryDelay + const Duration(seconds: 1));
+
+      expect(repo.attempts, greaterThanOrEqualTo(2),
+          reason: 'no retry was ever scheduled, so a failed write was final');
+      expect(repo.saved?.tripA, closeTo(350, 1),
+          reason: 'the tunnel correction never reached disk. A process kill '
+              'here loses the whole tunnel, which is the failure this exists '
+              'to prevent');
+      container.dispose();
+    });
+
   });
+}
+
+/// A repository that fails its first [failures] saves, then succeeds. There was
+/// no way to exercise a failed write before this existed.
+class _FlakyRepo implements TripRepository {
+  _FlakyRepo({required this.failures});
+  final int failures;
+  int attempts = 0;
+  TripState? saved;
+
+  @override
+  TripState load() => TripState.zero;
+
+  @override
+  Future<void> save(TripState s) async {
+    attempts++;
+    if (attempts <= failures) throw StateError('disk full');
+    saved = s;
+  }
 }

@@ -14,6 +14,7 @@ class GpsSample {
     required this.hasFix,
     this.speedAccuracyMps = double.nan,
     this.stalled = false,
+    this.subscriptionReset = false,
     this.errorMessage,
   });
 
@@ -52,6 +53,27 @@ class GpsSample {
   /// health panel cannot tell them apart, which is why its counter sat at zero
   /// no matter what happened.
   final bool stalled;
+
+  /// THE SUBSCRIPTION WAS TORN DOWN AND REBUILT — the single signal every
+  /// consumer needs in order to forget state derived from fixes it can no
+  /// longer trust.
+  ///
+  /// Deliberately SEPARATE from [stalled], because they answer different
+  /// questions and conflating them broke both:
+  ///   * [stalled] is a CLAIM about health, counted by GNSS HEALTH and read by
+  ///     the road test. It is only true with evidence (services OFF→ON).
+  ///   * this is a statement of FACT about the stream: whatever happens next
+  ///     comes from a new subscription, so an unknown amount of driving may
+  ///     have gone unobserved.
+  ///
+  /// Every teardown sets it — the stall signal, the elapsed-silence backstop,
+  /// a platform error, and a stream that simply COMPLETED. That last one had no
+  /// marker at all and fell straight into the reconnect backoff, so the first
+  /// recovered fix silently reused the pre-outage position, speed and course.
+  ///
+  /// An ordinary tunnel heartbeat is NOT one of these: the subscription is
+  /// untouched, the sky is just missing.
+  final bool subscriptionReset;
 
   /// The platform failure this synthetic sample is reporting, or null on every
   /// ordinary sample.
@@ -113,6 +135,7 @@ class GpsSample {
         altitudeM: 0,
         hasFix: false,
         stalled: true,
+        subscriptionReset: true,
       );
 
   /// The platform stream failed. Carries [errorMessage] so the cluster can say
@@ -126,7 +149,23 @@ class GpsSample {
         accuracyM: -1,
         altitudeM: 0,
         hasFix: false,
+        subscriptionReset: true,
         errorMessage: message,
+      );
+
+  /// The subscription was rebuilt WITHOUT evidence that it was dead — the
+  /// elapsed-silence backstop, or a stream that completed. Not a stall, so it
+  /// must not be counted as a fault, but derived state is stale either way.
+  factory GpsSample.resubscribed() => GpsSample(
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+        latitude: 0,
+        longitude: 0,
+        speedMps: 0,
+        headingDeg: double.nan,
+        accuracyM: -1,
+        altitudeM: 0,
+        hasFix: false,
+        subscriptionReset: true,
       );
 
   factory GpsSample.noFix() => GpsSample(

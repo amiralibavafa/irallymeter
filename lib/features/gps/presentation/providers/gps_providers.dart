@@ -172,14 +172,56 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
     // platform failure and must not raise GPS ERROR — so it reached neither
     // branch above and left every derived value intact. Same consequence
     // though: an unknown amount of driving happened unobserved.
-    if (s.stalled) {
+    // ONE SIGNAL, EVERY TEARDOWN. `subscriptionReset` is set by the stall
+    // path, the elapsed-silence backstop, a platform error AND a stream that
+    // merely completed. Checking `stalled` here covered only the first of
+    // those, because `stalled` is a health CLAIM and not every rebuild earns
+    // it. Anything that rebuilds the subscription now lands here by
+    // construction rather than by being remembered.
+    if (s.subscriptionReset) {
       invalidateAfterOutage();
+    }
+
+    // §19 row 6 / stream-health measurement for the road test.
+    //
+    // ABOVE the no-fix guard, deliberately: STREAM STALLS is counted from the
+    // stalled sample, which IS a no-fix sample. Putting the guard first made
+    // that counter unreachable and `gps_stall_counter_test` 04 caught it
+    // immediately — the same field C2 was raised for.
+    health.add(s, DateTime.now());
+
+    // A NO-FIX SAMPLE CARRIES NO MEASUREMENT, so it must not feed one.
+    //
+    // It has lat/lon 0, an epoch timestamp and accuracy -1. Running it through
+    // the pipeline made `prev` a point in the Gulf of Guinea, fed the speed
+    // filter a fabricated zero, and — the reason Codex raised it — left
+    // `usingGpsCourse` latched so the pre-tunnel course was republished as a
+    // live GPS heading for the whole length of a tunnel. That is C1 again, on
+    // the one path this app exists to handle.
+    //
+    // The status still updates, so the cluster shows the gap; only the
+    // measurement state is left alone.
+    if (!s.hasFix) {
+      controller.add(GpsState(
+        streamError: lastError,
+        smoothedSpeedMps: speedFilter.value,
+        // NaN while there is no fix: `capHeadingProvider` reads that as the
+        // signal to fall through to the magnetometer, which is the honest
+        // source when the receiver is telling us nothing.
+        headingDeg: double.nan,
+        accuracyM: s.accuracyM,
+        latitude: s.latitude,
+        longitude: s.longitude,
+        altitudeM: s.altitudeM,
+        quality: GpsState.qualityFor(s.accuracyM, s.hasFix),
+        receivedAt: DateTime.now(),
+        hasFix: false,
+      ));
+      return;
     }
 
     // A fix arrived: whatever was wrong is over.
     lastError = null;
-    // §19 row 6 / stream-health measurement for the road test.
-    health.add(s, DateTime.now());
 
     // Prefer the GPS-reported (Doppler) speed — it's the most accurate. Fall
     // back to position-delta speed when the platform reports none: the Android

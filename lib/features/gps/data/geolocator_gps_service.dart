@@ -211,6 +211,14 @@ class GeolocatorGpsService implements GpsRepository {
           yield sample;
         }
         // Completed normally (rare) — fall through and reconnect.
+        //
+        // AND SAY SO. This path emitted NOTHING and fell straight into the
+        // backoff, so the consumer never learned the subscription had been
+        // replaced and the first recovered fix silently reused the pre-outage
+        // position, speed and course. It is the quietest of the break paths and
+        // was the last one found. Not a stall — there is no evidence the stream
+        // was dead, it simply ended.
+        yield GpsSample.resubscribed();
       } on _StallSignal catch (e) {
         stalled = true;
         // ignore: avoid_print
@@ -227,7 +235,13 @@ class GeolocatorGpsService implements GpsRepository {
         //
         // The re-subscribe itself still happens either way; only the CLAIM
         // about what it means is withheld.
-        yield e.sawServicesDisabled ? GpsSample.stalled() : GpsSample.noFix();
+        // `resubscribed()`, NOT `noFix()`, for the unevidenced case. Both are
+        // no-fix samples and neither is counted as a fault, but a rebuilt
+        // subscription invalidates derived state while an ordinary tunnel
+        // heartbeat does not — and `noFix()` could not tell them apart.
+        yield e.sawServicesDisabled
+            ? GpsSample.stalled()
+            : GpsSample.resubscribed();
       } catch (e) {
         // The foreground service can fail to start on Android 13+ when the
         // POST_NOTIFICATIONS permission is denied. Drop the FGS requirement for

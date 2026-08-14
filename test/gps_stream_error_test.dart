@@ -294,6 +294,84 @@ void main() {
               'heading, which is exactly the C1 failure again');
     });
 
+    test('10 · a stream that COMPLETES invalidates too', () async {
+      // THE QUIETEST BREAK PATH, and the last one found. A completed stream
+      // emitted NOTHING and fell straight into the reconnect backoff, so the
+      // consumer never learned the subscription had been replaced and the first
+      // recovered fix reused the pre-outage speed. Codex round 5.
+      final c = StreamController<GpsSample>();
+      final container = ProviderContainer(overrides: [
+        gpsRepositoryProvider.overrideWithValue(_FakeGps(c.stream)),
+      ]);
+      final sub = container.listen(gpsStateProvider, (_, __) {},
+          fireImmediately: true);
+
+      for (var i = 0; i < 6; i++) {
+        c.add(_movingFix(tMs: i * 1000));
+        await _pump();
+      }
+      expect(container.read(gpsStateProvider).valueOrNull?.smoothedSpeedMps ?? 0,
+          greaterThan(10), reason: 'precondition');
+
+      // What the service now emits when its inner stream completes.
+      c.add(GpsSample.resubscribed());
+      await _pump();
+      c.add(_nanDopplerFix(tMs: 200000));
+      await _pump();
+      final speed =
+          container.read(gpsStateProvider).valueOrNull?.smoothedSpeedMps ?? -1;
+
+      sub.close();
+      container.dispose();
+
+      expect(speed, lessThan(2.0),
+          reason: 'a rebuilt subscription means driving may have gone '
+              'unobserved, whether or not it was a stall');
+    });
+
+    test('11 · a tunnel heartbeat does NOT republish the old GPS course',
+        () async {
+      // C1 AGAIN, ON THE ORDINARY TUNNEL PATH. A no-fix heartbeat was run
+      // through the whole pipeline: `usingGpsCourse` stayed latched and the
+      // pre-tunnel course was republished as a live GPS heading for the entire
+      // length of the tunnel — a bearing the receiver was not reporting,
+      // asserted as current, which is exactly what C1 was raised for.
+      //
+      // The heartbeat is NOT a subscription reset; the sky is just missing. So
+      // this is fixed by not feeding measurement state from a sample that
+      // measured nothing, rather than by invalidating.
+      final c = StreamController<GpsSample>();
+      final container = ProviderContainer(overrides: [
+        gpsRepositoryProvider.overrideWithValue(_FakeGps(c.stream)),
+      ]);
+      final sub = container.listen(gpsStateProvider, (_, __) {},
+          fireImmediately: true);
+
+      for (var i = 0; i < 6; i++) {
+        c.add(_movingFix(tMs: i * 1000));
+        await _pump();
+      }
+      final before = container.read(gpsStateProvider).valueOrNull?.headingDeg;
+      expect(before != null && before.isFinite, isTrue,
+          reason: 'precondition: a GPS course must actually be held');
+
+      // Into a tunnel: the watchdog's 20 s heartbeats, subscription untouched.
+      for (var i = 0; i < 5; i++) {
+        c.add(GpsSample.noFix());
+        await _pump();
+      }
+      final during = container.read(gpsStateProvider).valueOrNull?.headingDeg;
+
+      sub.close();
+      container.dispose();
+
+      expect(during == null || during.isNaN, isTrue,
+          reason: 'the cluster asserted a live GPS course through a tunnel. '
+              'NaN is what capHeadingProvider reads to fall through to the '
+              'magnetometer, which is the honest source when the receiver is '
+              'telling us nothing');
+    });
+
     test('04 · an error from the REAL service reaches the error UI', () async {
       // TESTS 01-03 ALL PASS AND STILL MISS THE PRODUCTION PATH. They inject a
       // fake repository that puts an error straight onto the stream, so they
