@@ -94,7 +94,7 @@ void main() {
               'odometer the assertion below passes against a resetAll that '
               'never touches it');
 
-      notifier2.resetAll();
+      await notifier2.resetAll();
 
       final after = container.read(tripProvider);
       expect(after.tripA, 0);
@@ -212,5 +212,37 @@ void main() {
               'silently disagrees with the trips');
       container.dispose();
     });
+    test('04 · an existing install MIGRATES, it does not reset to zero',
+        () async {
+      // THE UPGRADE PATH. Persistence moved from three keys to one snapshot,
+      // because neither three writes nor a `putAll` was crash-atomic in Hive.
+      // Without a migration read, the first launch after that change finds no
+      // snapshot and reports zero — silently wiping the crew's odometer, which
+      // is the one counter that cannot be recovered.
+      // Test 03 closes the box to prove durability, so reopen for this one.
+      final fresh = await StorageService.init();
+      var container = ProviderContainer(
+        overrides: [storageProvider.overrideWithValue(fresh)],
+      );
+      // Write the LEGACY shape directly, as an older build would have left it.
+      await container.read(storageProvider).write(StorageKeys.tripA, 1500.0);
+      await container.read(storageProvider).write(StorageKeys.tripB, 2500.0);
+      await container.read(storageProvider).write(StorageKeys.odometer, 99000.0);
+      // And clear the new-shape key so the legacy path is what gets exercised.
+      await container.read(storageProvider).delete(StorageKeys.tripSnapshot);
+      container.dispose();
+
+      container = ProviderContainer(
+        overrides: [storageProvider.overrideWithValue(fresh)],
+      );
+      final loaded = container.read(tripProvider);
+
+      expect(loaded.odometer, closeTo(99000, 1),
+          reason: 'the lifetime odometer was reset to zero by the upgrade');
+      expect(loaded.tripA, closeTo(1500, 1));
+      expect(loaded.tripB, closeTo(2500, 1));
+      container.dispose();
+    });
+
   });
 }

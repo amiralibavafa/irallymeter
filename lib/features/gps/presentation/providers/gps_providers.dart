@@ -105,6 +105,8 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
       // first recovered fix against a pre-outage position. Codex round 2. Two
       // paths reach "the stream failed" and BOTH invalidate the baseline.
       prev = null;
+      // The retained speed is not evidence either — see SpeedFilter.reset.
+      speedFilter.reset();
       controller.add(GpsState.initial().copyWithError(lastError));
       return;
     }
@@ -134,6 +136,8 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
       // this impossible by accident. Marking the error kept the sample out of
       // that path, so the guard has to be explicit now. Codex, SA-V3.
       prev = null;
+      // The retained speed is not evidence either — see SpeedFilter.reset.
+      speedFilter.reset();
       controller.add(GpsState.initial().copyWithError(lastError));
       return;
     }

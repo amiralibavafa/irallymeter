@@ -158,11 +158,23 @@ class TripController extends Notifier<TripState> {
     // into the freshly zeroed counters over the following seconds and a "reset
     // everything" would quietly not stay at zero.
     _settleOwedMetres();
-    state = state.copyWith(tripA: 0, tripB: 0, odometer: 0);
-    // AWAITED, unlike every other action here. This one is irreversible and the
-    // crew is told it happened; returning before the write lands means a
-    // restart can resurrect counters they believe they cleared. Codex, SA-V3.
-    return _persistNow();
+    final cleared = state.copyWith(tripA: 0, tripB: 0, odometer: 0);
+    // PERSIST FIRST, THEN PUBLISH.
+    //
+    // Awaiting the write was not enough on its own: the state was published
+    // before it, and `InkWell.onLongPress` is a `VoidCallback` so Flutter never
+    // observes the returned Future anyway. The screen could therefore show zero
+    // while the write was still pending, or had failed — and a failed write
+    // leaves zero on screen with the old values returning after a restart.
+    //
+    // Writing first inverts that: the counters only read zero once zero is what
+    // is on disk. On failure the exception propagates and the display still
+    // shows the real values, which is the honest outcome. Codex round 3.
+    return _repo.save(cleared).then((_) {
+      _lastPersist = DateTime.now();
+      _dirty = false;
+      state = cleared;
+    });
   }
 
   void resetOdometer() {

@@ -45,6 +45,12 @@ class StorageService {
 class StorageKeys {
   StorageKeys._();
 
+  /// The three counters as ONE value. See [TripRepository.save].
+  static const String tripSnapshot = 'trip_snapshot';
+
+  /// LEGACY, read-only. Superseded by [tripSnapshot] because three separate
+  /// keys could not be written atomically. Kept so an existing install's
+  /// distance is migrated rather than silently reset to zero on upgrade.
   static const String tripA = 'trip_a_m';
   static const String tripB = 'trip_b_m';
   static const String odometer = 'odometer_m';

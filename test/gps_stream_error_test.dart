@@ -171,6 +171,53 @@ void main() {
               'pre-outage position as the differencing baseline');
     });
 
+    test('07 · the SPEED FILTER is reset too, not just the baseline',
+        () async {
+      // A THIRD ROUTE TO THE SAME LIE, and clearing `prev` does not close it.
+      //
+      // Tests 05 and 06 use a TRUSTWORTHY zero Doppler, so with `prev` cleared
+      // the positional fallback simply cannot run and the readout is 0. This
+      // one uses an UNTRUSTWORTHY reading (NaN), which is what a struggling
+      // receiver actually produces: `SpeedFilter.add` returns its RETAINED
+      // value for a NaN sample, so the cluster kept showing the pre-outage
+      // 20 m/s on a stationary car while reporting a valid fix.
+      //
+      // `SpeedFilter.reset()` already existed and simply had no caller on this
+      // path — the same shape as C2's stall counter. Codex round 3.
+      final c = StreamController<GpsSample>();
+      final container = ProviderContainer(overrides: [
+        gpsRepositoryProvider.overrideWithValue(_FakeGps(c.stream)),
+      ]);
+      final sub = container.listen(gpsStateProvider, (_, __) {},
+          fireImmediately: true);
+
+      // Moving at 20 m/s, trustworthy, so the filter charges up.
+      for (var i = 0; i < 6; i++) {
+        c.add(_movingFix(tMs: i * 1000));
+        await _pump();
+      }
+      expect(container.read(gpsStateProvider).valueOrNull?.smoothedSpeedMps ?? 0,
+          greaterThan(10),
+          reason: 'precondition: the filter must actually be holding a speed');
+
+      c.addError(Exception('platform failure'));
+      await _pump();
+
+      // Recovered, STOPPED, and the receiver reports an unusable speed.
+      c.add(_nanDopplerFix(tMs: 200000));
+      await _pump();
+      final speed =
+          container.read(gpsStateProvider).valueOrNull?.smoothedSpeedMps ?? -1;
+
+      sub.close();
+      container.dispose();
+
+      expect(speed, lessThan(2.0),
+          reason: 'the car is stationary. The filter handed back the speed it '
+              'was holding from before the failure, because a NaN reading '
+              'leaves its retained value untouched');
+    });
+
     test('04 · an error from the REAL service reaches the error UI', () async {
       // TESTS 01-03 ALL PASS AND STILL MISS THE PRODUCTION PATH. They inject a
       // fake repository that puts an error straight onto the stream, so they
@@ -232,6 +279,31 @@ GpsSample _zeroDopplerFix({required double lat, required int tMs}) => GpsSample(
       latitude: lat,
       longitude: 8.0,
       speedMps: 0,
+      headingDeg: double.nan,
+      accuracyM: 5,
+      altitudeM: 0,
+      hasFix: true,
+    );
+
+GpsSample _movingFix({required int tMs}) => GpsSample(
+      timestamp: DateTime.fromMillisecondsSinceEpoch(tMs),
+      latitude: 46.0 + tMs / 1000 * 0.00018,
+      longitude: 8.0,
+      speedMps: 20,
+      speedAccuracyMps: 0.5,
+      headingDeg: 0,
+      accuracyM: 5,
+      altitudeM: 0,
+      hasFix: true,
+    );
+
+/// A receiver that has a fix but cannot qualify its speed. `SpeedFilter.add`
+/// returns its RETAINED value for this, which is the whole point of the test.
+GpsSample _nanDopplerFix({required int tMs}) => GpsSample(
+      timestamp: DateTime.fromMillisecondsSinceEpoch(tMs),
+      latitude: 46.2,
+      longitude: 8.0,
+      speedMps: double.nan,
       headingDeg: double.nan,
       accuracyM: 5,
       altitudeM: 0,
