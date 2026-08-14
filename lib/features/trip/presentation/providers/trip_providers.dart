@@ -104,10 +104,31 @@ class TripController extends Notifier<TripState> {
   /// Returns the write so a DESTRUCTIVE action can await it. Fire-and-forget is
   /// fine for routine throttled saves; it is not fine for a reset, which must
   /// not report success before it is durable.
+  /// Clears `_dirty` only ON SUCCESS.
+  ///
+  /// It used to clear optimistically, before the write completed. So a failed
+  /// or interrupted write left `_dirty == false` with unsaved distance in
+  /// memory and NOTHING TO TRIGGER A RETRY — the next throttled save saw
+  /// nothing owing. For a post-tunnel correction, which is consumed from the
+  /// reconciler and never re-emitted, that silently lost the whole tunnel.
+  ///
+  /// Four review rounds patched WHERE saves happen (three keys, then putAll,
+  /// then one key). None of that mattered while the completion contract itself
+  /// was wrong: a durable write means the flag drops when the bytes land, not
+  /// when the call is made.
   Future<void> _persistNow() {
+    final pending = state;
     _lastPersist = DateTime.now();
-    _dirty = false;
-    return _repo.save(state);
+    return _repo.save(pending).then((_) {
+      // Only claim it is clean if nothing further changed while we wrote.
+      if (identical(state, pending)) _dirty = false;
+    }, onError: (Object e, StackTrace st) {
+      // Stay dirty so the ordinary throttled path tries again. Losing measured
+      // distance without a word is the failure this exists to prevent.
+      _dirty = true;
+      // ignore: avoid_print
+      print('iRallyMeter: trip save failed ($e) — staying dirty for retry');
+    });
   }
 
   // ---- User actions (persist immediately — these are deliberate edits) ----

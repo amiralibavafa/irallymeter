@@ -84,6 +84,33 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
   GpsSample? prev;
   final controller = StreamController<GpsState>();
 
+  /// THE STREAM BROKE — forget everything derived from fixes we can no longer
+  /// trust, in ONE place.
+  ///
+  /// This exists because four review rounds each found the NEXT piece of state
+  /// I had not cleared: `prev`, then the speed filter, then the heading. They
+  /// were never four bugs. There are THREE ways the stream can break and FOUR
+  /// pieces of derived state, and clearing them one branch at a time only ever
+  /// closes one cell of that grid.
+  ///
+  /// The rule is single: an outage means an UNKNOWN amount of driving happened
+  /// unobserved, so nothing derived from before it is evidence about after it.
+  ///  * `prev`        — the §7.1 positional fallback would difference across
+  ///                    the gap and report the average speed over it.
+  ///  * `speedFilter` — returns its RETAINED value for an unusable reading, so
+  ///                    a stopped car keeps showing its pre-outage speed.
+  ///  * `headingSmoother` + `usingGpsCourse` — would republish the pre-outage
+  ///                    course as a current GPS heading, which is C1 again.
+  ///
+  /// Anything added here later is covered on all three paths by construction.
+  /// That is the point of one closure rather than three more lines.
+  void invalidateAfterOutage() {
+    prev = null;
+    speedFilter.reset();
+    headingSmoother.reset();
+    usingGpsCourse = false;
+  }
+
   final health = ref.read(gpsHealthProvider);
   ref.listen<AsyncValue<GpsSample>>(rawGpsStreamProvider, (_, next) {
     if (controller.isClosed) return;
@@ -104,9 +131,7 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
       // only, so any repository emitting an AsyncError still differenced the
       // first recovered fix against a pre-outage position. Codex round 2. Two
       // paths reach "the stream failed" and BOTH invalidate the baseline.
-      prev = null;
-      // The retained speed is not evidence either — see SpeedFilter.reset.
-      speedFilter.reset();
+      invalidateAfterOutage();
       controller.add(GpsState.initial().copyWithError(lastError));
       return;
     }
@@ -135,11 +160,20 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
       // The old code emitted `noFix()` here, which replaced `prev` and made
       // this impossible by accident. Marking the error kept the sample out of
       // that path, so the guard has to be explicit now. Codex, SA-V3.
-      prev = null;
-      // The retained speed is not evidence either — see SpeedFilter.reset.
-      speedFilter.reset();
+      invalidateAfterOutage();
       controller.add(GpsState.initial().copyWithError(lastError));
       return;
+    }
+
+    // THE THIRD BREAK PATH, and the one both error branches missed.
+    //
+    // A stall is the watchdog tearing down a dead subscription and rebuilding
+    // it. It carries no `errorMessage` — deliberately, because it is not a
+    // platform failure and must not raise GPS ERROR — so it reached neither
+    // branch above and left every derived value intact. Same consequence
+    // though: an unknown amount of driving happened unobserved.
+    if (s.stalled) {
+      invalidateAfterOutage();
     }
 
     // A fix arrived: whatever was wrong is over.

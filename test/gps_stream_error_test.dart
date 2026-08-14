@@ -218,6 +218,82 @@ void main() {
               'leaves its retained value untouched');
     });
 
+    test('08 · a STALL invalidates too, though it is not an error', () async {
+      // THE THIRD BREAK PATH. A stall carries no `errorMessage` — deliberately,
+      // it is not a platform failure and must not raise GPS ERROR — so it
+      // reached NEITHER error branch and left every derived value intact.
+      // Round 4 found it after rounds 2 and 3 had patched the other two paths
+      // one piece of state at a time.
+      final c = StreamController<GpsSample>();
+      final container = ProviderContainer(overrides: [
+        gpsRepositoryProvider.overrideWithValue(_FakeGps(c.stream)),
+      ]);
+      final sub = container.listen(gpsStateProvider, (_, __) {},
+          fireImmediately: true);
+
+      for (var i = 0; i < 6; i++) {
+        c.add(_movingFix(tMs: i * 1000));
+        await _pump();
+      }
+      expect(container.read(gpsStateProvider).valueOrNull?.smoothedSpeedMps ?? 0,
+          greaterThan(10), reason: 'precondition');
+
+      c.add(GpsSample.stalled());
+      await _pump();
+      c.add(_nanDopplerFix(tMs: 200000));
+      await _pump();
+      final speed =
+          container.read(gpsStateProvider).valueOrNull?.smoothedSpeedMps ?? -1;
+
+      sub.close();
+      container.dispose();
+
+      expect(speed, lessThan(2.0),
+          reason: 'a rebuilt subscription means driving happened unobserved, '
+              'so the pre-stall speed is not evidence about the speed now');
+    });
+
+    test('09 · an outage also drops the HEADING, not just the speed',
+        () async {
+      // The fourth piece of derived state, and the last cell of the grid.
+      // Republishing a pre-outage course as a current GPS heading is C1 again:
+      // a confident bearing the receiver never reported.
+      final c = StreamController<GpsSample>();
+      final container = ProviderContainer(overrides: [
+        gpsRepositoryProvider.overrideWithValue(_FakeGps(c.stream)),
+      ]);
+      final sub = container.listen(gpsStateProvider, (_, __) {},
+          fireImmediately: true);
+
+      for (var i = 0; i < 6; i++) {
+        c.add(_movingFix(tMs: i * 1000));
+        await _pump();
+      }
+      final before = container.read(gpsStateProvider).valueOrNull?.headingDeg;
+      expect(before != null && before.isFinite, isTrue,
+          reason: 'precondition: a heading must actually be held');
+
+      c.addError(Exception('platform failure'));
+      await _pump();
+
+      // READ AFTER RECOVERY, NOT AFTER THE ERROR. Reading straight after the
+      // error proves nothing: that branch publishes `GpsState.initial()`, whose
+      // heading is NaN whatever the smoother is holding. The defect only shows
+      // once a fix arrives and the smoother is consulted again. My first
+      // version of this test made exactly that mistake and passed with the fix
+      // removed.
+      c.add(_noCourseFix(tMs: 200000));
+      await _pump();
+      final after = container.read(gpsStateProvider).valueOrNull?.headingDeg;
+
+      sub.close();
+      container.dispose();
+
+      expect(after == null || after.isNaN, isTrue,
+          reason: 'the cluster republished the pre-outage course as a live GPS '
+              'heading, which is exactly the C1 failure again');
+    });
+
     test('04 · an error from the REAL service reaches the error UI', () async {
       // TESTS 01-03 ALL PASS AND STILL MISS THE PRODUCTION PATH. They inject a
       // fake repository that puts an error straight onto the stream, so they
@@ -304,6 +380,20 @@ GpsSample _nanDopplerFix({required int tMs}) => GpsSample(
       latitude: 46.2,
       longitude: 8.0,
       speedMps: double.nan,
+      headingDeg: double.nan,
+      accuracyM: 5,
+      altitudeM: 0,
+      hasFix: true,
+    );
+
+/// Moving fast enough to select the GPS-course branch, but the receiver
+/// reports NO course — so whatever the smoother holds is what gets published.
+GpsSample _noCourseFix({required int tMs}) => GpsSample(
+      timestamp: DateTime.fromMillisecondsSinceEpoch(tMs),
+      latitude: 46.2,
+      longitude: 8.0,
+      speedMps: 20,
+      speedAccuracyMps: 0.5,
       headingDeg: double.nan,
       accuracyM: 5,
       altitudeM: 0,
