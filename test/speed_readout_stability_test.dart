@@ -72,6 +72,23 @@ void main() {
           reason: 'a rally car passes through all three lengths on one stage');
     });
 
+    testWidgets('02b · large-text accessibility does not bring it back',
+        (tester) async {
+      // THE CAP HAS TO KNOW ABOUT THE TEXT SCALER. Flutter applies
+      // `MediaQuery.textScaler` to the Text AFTER the size is chosen, so
+      // dividing the raw width by three reserves room for three UNSCALED
+      // glyphs. At 1.5x accessibility scaling three digits then overflow, the
+      // FittedBox engages for "188" and not for "8", and the collapse this cap
+      // exists to prevent returns under a setting the OS fully supports.
+      // Codex found it; the other tests all run at the default scale.
+      final one = await _digitHeight(tester, 8 / 3.6, scale: 1.5);
+      final three = await _digitHeight(tester, 188 / 3.6, scale: 1.5);
+
+      expect(three, closeTo(one, 0.5),
+          reason: 'with large text enabled the speed resized across 100 km/h '
+              'again, which is the original defect wearing a different hat');
+    });
+
     testWidgets('03 · the widest realistic value is not clipped',
         (tester) async {
       // Holding a constant size is worthless if it achieves it by cutting a
@@ -87,15 +104,16 @@ void main() {
 /// Rendered height of the speed digits in a box the size of the real cluster
 /// column. `getRect` is used rather than `getSize` because it applies the
 /// FittedBox transform, and the transform IS what is under test.
-Future<double> _digitHeight(WidgetTester tester, double mps) async {
-  await _pump(tester, mps);
+Future<double> _digitHeight(WidgetTester tester, double mps,
+    {double scale = 1.0}) async {
+  await _pump(tester, mps, scale: scale);
   final text = find.byType(Text).first;
   final rect = tester.getRect(text);
   await tester.pumpWidget(const SizedBox.shrink());
   return rect.height;
 }
 
-Future<void> _pump(WidgetTester tester, double mps) async {
+Future<void> _pump(WidgetTester tester, double mps, {double scale = 1.0}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -107,11 +125,17 @@ Future<void> _pump(WidgetTester tester, double mps) async {
       child: MaterialApp(
         theme: AppTheme.build(DisplayMode.day),
         home: Scaffold(
-          body: Center(
+          body: Builder(
+            builder: (context) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(scale)),
+              child: Center(
             child: SizedBox(
               width: _speedColumnWidth,
               height: _speedColumnHeight,
               child: const Center(child: SpeedDisplay()),
+            ),
+          ),
             ),
           ),
         ),

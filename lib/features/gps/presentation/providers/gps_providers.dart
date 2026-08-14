@@ -116,6 +116,18 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
     // path a real receiver takes.
     if (s.errorMessage != null) {
       lastError = s.errorMessage;
+      // DROP THE POSITION BASELINE. `prev` is what the §7.1 fallback
+      // differentiates against when a receiver reports no usable Doppler, and
+      // an error means an unknown amount of driving happened unobserved. Keep
+      // it and the first recovered fix is differenced against a position from
+      // before the outage: a car that drove and then stopped shows its AVERAGE
+      // speed over the whole gap while stationary, and the filter adopts it
+      // almost at once because the elapsed time is large.
+      //
+      // The old code emitted `noFix()` here, which replaced `prev` and made
+      // this impossible by accident. Marking the error kept the sample out of
+      // that path, so the guard has to be explicit now. Codex, SA-V3.
+      prev = null;
       controller.add(GpsState.initial().copyWithError(lastError));
       return;
     }

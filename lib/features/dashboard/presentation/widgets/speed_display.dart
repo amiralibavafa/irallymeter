@@ -83,9 +83,19 @@ class SpeedDisplay extends ConsumerWidget {
         // scaling, at any column width, on any font. The FittedBox stays as the
         // guard it was always meant to be rather than as a participant in
         // normal sizing.
+        //
+        // THE TEXT SCALER HAS TO BE IN HERE. Flutter applies
+        // `MediaQuery.textScaler` to the `Text` AFTER this size is chosen, so
+        // dividing the raw width by three reserves room for three UNSCALED
+        // glyphs. With large-text accessibility on, three digits then overflow
+        // and the FittedBox engages for "188" and not for "8" — the exact
+        // collapse this cap exists to prevent, returning under a supported
+        // device setting. Codex, SA-V3.
         const maxDigits = 3;
-        final byWidth =
-            c.maxWidth.isFinite ? c.maxWidth / maxDigits : double.infinity;
+        final scale = MediaQuery.textScalerOf(context).scale(1.0);
+        final byWidth = c.maxWidth.isFinite
+            ? c.maxWidth / (maxDigits * (scale <= 0 ? 1.0 : scale))
+            : double.infinity;
         final size = math.min(byHeight, byWidth);
 
         return Column(

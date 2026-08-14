@@ -97,6 +97,46 @@ void main() {
               'they go under a mountain makes the warning worthless');
     });
 
+    test('05 · an error DROPS the position baseline', () async {
+      // A receiver reporting 0.0 for Doppler falls back to differentiating
+      // POSITIONS (§7.1). If an error leaves the previous fix in place, the
+      // first fix after recovery is differenced against a position from before
+      // the outage — so a car that drove during the outage and then stopped
+      // shows its AVERAGE SPEED OVER THE WHOLE GAP while stationary, and the
+      // filter adopts it almost at once because the elapsed time is large.
+      //
+      // The old code emitted noFix() here, which replaced the baseline and made
+      // this impossible by accident. Marking the error kept the sample out of
+      // that path, so the guard had to become explicit. Codex, SA-V3.
+      final c = StreamController<GpsSample>();
+      final container = ProviderContainer(overrides: [
+        gpsRepositoryProvider.overrideWithValue(_FakeGps(c.stream)),
+      ]);
+      final sub = container.listen(gpsStateProvider, (_, __) {},
+          fireImmediately: true);
+
+      // Stationary at the start line, no usable Doppler.
+      c.add(_zeroDopplerFix(lat: 46.0, tMs: 0));
+      await _pump();
+
+      // The receiver fails. Meanwhile the car drives 2 km unobserved.
+      c.add(GpsSample.error('permission revoked'));
+      await _pump();
+
+      // Recovery, 2 km away and STOPPED.
+      c.add(_zeroDopplerFix(lat: 46.018, tMs: 120000));
+      await _pump();
+      final speed = container.read(gpsStateProvider).valueOrNull?.smoothedSpeedMps ?? -1;
+
+      sub.close();
+      container.dispose();
+
+      expect(speed, lessThan(2.0),
+          reason: 'the car is stationary, but the speed was derived across the '
+              'whole outage against a pre-error position. A stopped rally car '
+              'reading 16 m/s is worse than reading nothing');
+    });
+
     test('04 · an error from the REAL service reaches the error UI', () async {
       // TESTS 01-03 ALL PASS AND STILL MISS THE PRODUCTION PATH. They inject a
       // fake repository that puts an error straight onto the stream, so they
@@ -150,6 +190,19 @@ Future<void> _pump() async {
     await Future<void>.delayed(Duration.zero);
   }
 }
+
+/// A fix from a receiver that reports 0.0 for Doppler — the case that makes the
+/// app differentiate positions, and therefore the case the baseline matters for.
+GpsSample _zeroDopplerFix({required double lat, required int tMs}) => GpsSample(
+      timestamp: DateTime.fromMillisecondsSinceEpoch(tMs),
+      latitude: lat,
+      longitude: 8.0,
+      speedMps: 0,
+      headingDeg: double.nan,
+      accuracyM: 5,
+      altitudeM: 0,
+      hasFix: true,
+    );
 
 GpsSample _fix() => GpsSample(
       timestamp: DateTime.fromMillisecondsSinceEpoch(1000),
