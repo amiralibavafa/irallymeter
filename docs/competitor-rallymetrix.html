@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>iRallyMeter vs RallyMetrix</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font: 10.5pt/1.5 -apple-system, "Helvetica Neue", Arial, sans-serif; color: #16161a; margin: 0; }
+  h1 { font-size: 21pt; margin: 0 0 2mm; letter-spacing: -.3px; }
+  .sub { color: #6b6b76; font-size: 10pt; margin: 0 0 7mm; }
+  h2 { font-size: 12.5pt; margin: 8mm 0 2.5mm; padding-bottom: 1.5mm;
+       border-bottom: 2px solid #FF6B00; page-break-after: avoid; }
+  h3 { font-size: 10.5pt; margin: 4.5mm 0 1mm; page-break-after: avoid; }
+  p { margin: 0 0 2.5mm; }
+  ul { margin: 0 0 3mm; padding-left: 5mm; }
+  li { margin-bottom: 1.5mm; }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 3mm; font-size: 9.5pt; }
+  th, td { border: 1px solid #d8d8de; padding: 1.8mm 2.2mm; text-align: left; vertical-align: top; }
+  th { background: #f4f4f6; font-weight: 600; }
+  code { font-family: "SF Mono", Menlo, monospace; font-size: 9pt; background: #f4f4f6; padding: 0 1mm; border-radius: 2px; }
+  .box { border-left: 3px solid #FF6B00; background: #fff8f2; padding: 3mm 4mm; margin: 0 0 4mm; }
+  .warn { border-left-color: #d92c20; background: #fff5f4; }
+  .ok { border-left-color: #1a9c4c; background: #f2fbf5; }
+  .muted { color: #6b6b76; font-size: 9.5pt; }
+  .win { font-weight: 700; color: #12703a; }
+  .lose { font-weight: 700; color: #a81d13; }
+  .avoid { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<h1>iRallyMeter vs RallyMetrix</h1>
+<p class="sub">Competitive analysis for Amirali &middot; 14 August 2026 &middot; prepared by Saam<br>
+Their app downloaded, installed and run. Analysis from public materials, the
+installed package, and the app itself.</p>
+
+<div class="box warn">
+  <p style="margin:0"><strong>A correction to something said earlier.</strong> An
+  initial read of their website suggested their app required Android 8 while
+  ours ran on Android 6, which would have been a real advantage to us.
+  <strong>Both numbers were wrong.</strong> Their installed package declares a
+  minimum of Android 7.0, ours declares Android 7.0, and they are identical.
+  Their own marketing page overstates their requirement. Our Android 6 claim was
+  never achievable, because a library the app depends on does not support it.
+  <strong>Neither product has an advantage here.</strong></p>
+</div>
+
+<h2>1. What they shipped</h2>
+
+<table>
+  <tr><th style="width:34%">&nbsp;</th><th style="width:33%">RallyMetrix</th><th style="width:33%">iRallyMeter</th></tr>
+  <tr><td>Version</td><td>1.0.2, third build</td><td>unreleased branch</td></tr>
+  <tr><td>Download size</td><td>57.4 MB</td><td>53.4 MB</td></tr>
+  <tr><td>Minimum Android</td><td>7.0</td><td>7.0</td></tr>
+  <tr><td>Platforms</td><td>Android only</td><td>Android, iOS builds and runs</td></tr>
+  <tr><td>Languages</td><td class="win">English and Persian, in-app toggle</td><td class="lose">English only</td></tr>
+  <tr><td>Business model</td><td class="win">Subscription, one month free</td><td class="lose">none</td></tr>
+  <tr><td>Account required</td><td class="lose">Yes, phone number and SMS code</td><td class="win">No account at all</td></tr>
+</table>
+
+<h2>2. The finding that matters most</h2>
+
+<div class="box warn">
+  <p><strong>Their app opens with a mandatory phone-number login and an SMS
+  verification code.</strong> There is no way past it. Using the app at all
+  requires a working mobile number, a network connection to receive the code,
+  and their server being reachable.</p>
+  <p style="margin:0"><strong>Their website states the app offers "completely
+  offline operation" and works in areas "without mobile network coverage".</strong>
+  Their own first screen contradicts that. It may well run offline once signed
+  in, but it cannot be reached offline.</p>
+</div>
+
+<p>For a rally computer this is a meaningful weakness, and it is worst in exactly
+the situation the product exists for. At a remote start area, on a phone with no
+signal, on a fresh install, <strong>their app is a login form and ours is a trip
+computer</strong>. Their server is also a single point of failure for every user
+at once, and a subscription that lapses mid-event is an account problem rather
+than a measurement problem.</p>
+
+<p>iRallyMeter has no account, no server and no login. It measures from first
+launch with no network, permanently.</p>
+
+<h2>3. What they claim, and what is missing from it</h2>
+
+<p>Their marketing lists a satellite speedometer, Trip 1 and Trip 2, real-time
+navigation, an "intelligent rally telemetry system", GPS and GLONASS, and fully
+offline operation.</p>
+
+<div class="box ok">
+  <p style="margin:0"><strong>Tunnels are never mentioned once.</strong> Their
+  own description of how the app works is "speed, acceleration and distance
+  calculated directly from the GPS hardware chipset". That is an accurate
+  description of an app that stops measuring when the sky disappears.</p>
+</div>
+
+<p>Estimating distance through a blackout from motion sensors, then reconciling
+against GPS on recovery, is the bulk of what this revision of iRallyMeter built.
+In a market whose cities contain Niayesh and Alborz, and whose rallies run
+mountain roads, that is not a minor feature.</p>
+
+<h3>They also appear to have no background measurement</h3>
+
+<p>The permissions their app requests are internet, network state, fine and
+coarse location, and wake lock. <strong>It does not request a foreground service,
+a location foreground service, or notifications.</strong> Without those, Android
+throttles or stops location updates when the screen turns off or the app moves
+to the background.</p>
+
+<p>iRallyMeter runs an Android foreground service specifically so the trip
+counter keeps measuring with the screen off, which is the normal state of a phone
+on a windscreen mount during a long transit.</p>
+
+<p class="muted">This one is inferred from the permission list rather than
+observed. It is strong evidence, not proof.</p>
+
+<h2>4. Where they are genuinely ahead</h2>
+
+<ul>
+  <li><strong>They shipped.</strong> Three builds, a working download, a free
+  trial and a subscription. iRallyMeter is an unmerged branch with no release
+  channel, no listing and no pricing.</li>
+  <li><strong>Persian.</strong> They have an in-app English and Persian toggle.
+  iRallyMeter is English only, and the open question about Persian-Indic digits
+  has not been answered.</li>
+  <li><strong>Real-time navigation.</strong> iRallyMeter has a map, not
+  navigation.</li>
+  <li><strong>A business model exists.</strong> Ours does not.</li>
+</ul>
+
+<h2>5. Honest limits of this analysis</h2>
+
+<ul>
+  <li><strong>Only the login screen was seen.</strong> Going further needed a
+  phone number and their SMS code, and working around another product's
+  authentication is not something worth doing.</li>
+  <li>Their tunnel handling, navigation quality and telemetry could all be
+  better than their marketing suggests. Absence from a website is not absence
+  from the product.</li>
+  <li>The background-measurement gap is inferred from permissions.</li>
+</ul>
+
+<div class="box">
+  <p style="margin:0"><strong>The test that would settle it is a drive.</strong>
+  Run both apps on the same phone over the same road, through a tunnel, and
+  compare the distance each reports against a known figure. That single
+  measurement is worth more than any amount of further teardown, and it is
+  something your father is already positioned to do.</p>
+</div>
+
+<h2>6. Recommendation</h2>
+
+<p><strong>Do not chase their feature list.</strong> Navigation and telemetry are
+where they are ahead, and both are large builds that move iRallyMeter away from
+what it is good at.</p>
+
+<p><strong>Press the two places they are structurally weak</strong>, because
+neither is a quick fix for them. A login wall is an architectural decision tied
+to their subscription, and measuring through a blackout is most of a product.
+Those are the two sentences worth putting in front of a crew:</p>
+
+<ul>
+  <li>It keeps measuring inside a tunnel.</li>
+  <li>It works with no account, no signal and no subscription.</li>
+</ul>
+
+<p><strong>Then close the gaps that are cheap.</strong> Persian is a translation
+pass, not an engineering problem, and it is the one place they are ahead that
+costs us little to match.</p>
+
+</body>
+</html>
