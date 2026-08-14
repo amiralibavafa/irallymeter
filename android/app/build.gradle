@@ -5,6 +5,12 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace = "com.irallyclub.irallymeter"
     compileSdk = flutter.compileSdkVersion
@@ -32,17 +38,42 @@ android {
         // Iran, where older handsets are common, so the floor is a product
         // decision rather than a toolchain default. Flutter's Android migrator
         // rewrites this line on build if given the chance.
-        minSdk = 23
+        minSdkVersion = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        release {
+            // Present only when android/key.properties exists. That file and the
+            // keystore are BOTH gitignored, so a clone builds fine and simply
+            // falls back to debug signing rather than failing.
+            if (keystoreProperties['storeFile'] != null) {
+                storeFile = file(keystoreProperties['storeFile'])
+                storePassword = keystoreProperties['storePassword']
+                keyAlias = keystoreProperties['keyAlias']
+                keyPassword = keystoreProperties['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            // REAL SIGNING when the key is available, debug otherwise.
+            //
+            // It was `signingConfigs.debug` unconditionally. That is fine for
+            // sideloading and fatal for everything else: every store rejects a
+            // debug-signed APK, and an app first installed under the debug key
+            // CANNOT be updated with a real one — Android refuses, so the only
+            // way through is uninstall, which wipes every saved trip.
+            //
+            // ⚠ THE KEYSTORE CANNOT BE REPLACED LATER WITHOUT THAT SAME WIPE,
+            // and if it is lost the app can never be updated again. See
+            // docs/SIGNING.md.
+            signingConfig = keystoreProperties['storeFile'] != null
+                ? signingConfigs.release
+                : signingConfigs.debug
         }
     }
 }

@@ -372,6 +372,48 @@ void main() {
               'telling us nothing');
     });
 
+    test('12 · the FIRST RECOVERED FIX after a tunnel is not derived across it',
+        () async {
+      // TEST 11 CHECKED THE WRONG MOMENT. It asserted the state DURING the
+      // no-fix stretch, which the guard fixed, and stopped there. The stale
+      // values were still sitting behind that guard, so the defect simply moved
+      // to RECOVERY: the first fix back derived its speed against a position
+      // from before the blackout, and republished the pre-tunnel course if it
+      // reported none. Harder to see, identical to the crew. Codex round 6.
+      final c = StreamController<GpsSample>();
+      final container = ProviderContainer(overrides: [
+        gpsRepositoryProvider.overrideWithValue(_FakeGps(c.stream)),
+      ]);
+      final sub = container.listen(gpsStateProvider, (_, __) {},
+          fireImmediately: true);
+
+      for (var i = 0; i < 6; i++) {
+        c.add(_movingFix(tMs: i * 1000));
+        await _pump();
+      }
+
+      // A tunnel: heartbeats only, subscription untouched.
+      for (var i = 0; i < 5; i++) {
+        c.add(GpsSample.noFix());
+        await _pump();
+      }
+
+      // Out the far side, 2 km on, STOPPED, and no usable Doppler.
+      c.add(_nanDopplerFix(tMs: 300000));
+      await _pump();
+      final st = container.read(gpsStateProvider).valueOrNull;
+
+      sub.close();
+      container.dispose();
+
+      expect(st?.smoothedSpeedMps ?? -1, lessThan(2.0),
+          reason: 'the speed was derived across the whole blackout against a '
+              'pre-tunnel position, so a stopped car reads as moving');
+      expect(st?.headingDeg == null || st!.headingDeg.isNaN, isTrue,
+          reason: 'the pre-tunnel course was republished as a live GPS '
+              'heading on the first fix back');
+    });
+
     test('04 · an error from the REAL service reaches the error UI', () async {
       // TESTS 01-03 ALL PASS AND STILL MISS THE PRODUCTION PATH. They inject a
       // fake repository that puts an error straight onto the stream, so they

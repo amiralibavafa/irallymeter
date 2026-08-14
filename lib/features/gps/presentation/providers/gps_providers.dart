@@ -202,6 +202,26 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
     // The status still updates, so the cluster shows the gap; only the
     // measurement state is left alone.
     if (!s.hasFix) {
+      // AND DROP WHAT CANNOT SURVIVE THE GAP. Hiding the stale values while
+      // dark was only half of it: leaving them intact meant the FIRST
+      // RECOVERED FIX derived its speed across the entire blackout, and a
+      // recovered fix reporting no course republished the pre-tunnel heading.
+      // The defect simply moved from during the tunnel to the moment of
+      // recovery, where it is harder to see. Codex round 6.
+      //
+      // THE SAME ONE FUNCTION, not a hand-picked subset. I first cleared only
+      // `prev` and the heading, reasoning that the filter's held value was
+      // useful to display while dark. The test then read 20.0 m/s on a stopped
+      // car out the far side: with no baseline to derive from, a NaN-Doppler
+      // fix makes `SpeedFilter.add` return exactly what it was holding from
+      // before the tunnel. Same lie, third route.
+      //
+      // Nothing measured before a gap is evidence about after it, and the
+      // moment that rule gets a hand-picked exception it stops holding. The
+      // driver's speedometer is unaffected either way: during a tunnel it reads
+      // the distance engine's estimate, not this.
+      invalidateAfterOutage();
+
       controller.add(GpsState(
         streamError: lastError,
         smoothedSpeedMps: speedFilter.value,

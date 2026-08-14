@@ -64,7 +64,11 @@ class TripController extends Notifier<TripState> {
       // Best effort only: dispose cannot await, so this is a last flush rather
       // than a guarantee. The guarantee is the retry loop above, which is why
       // it exists.
-      if (_dirty) _repo.save(state).catchError((Object _) {});
+      // Chained too, so a teardown cannot race a write already in flight.
+      if (_dirty) {
+        _writeChain =
+            _writeChain.then((_) => _repo.save(state)).catchError((Object _) {});
+      }
     });
 
     return _repo.load();
@@ -251,11 +255,21 @@ class TripController extends Notifier<TripState> {
     // Writing first inverts that: the counters only read zero once zero is what
     // is on disk. On failure the exception propagates and the display still
     // shows the real values, which is the honest outcome. Codex round 3.
-    return _repo.save(cleared).then((_) {
+    // THROUGH THE SAME QUEUE AS EVERY OTHER WRITE. This called `_repo.save`
+    // directly, which is not serialization at all: a delta's write queued a
+    // moment earlier could land AFTER the reset and resurrect the counters the
+    // crew had just cleared. "Cannot interleave" is only true if there is
+    // exactly one path. Codex round 6.
+    final queued = _writeChain.then((_) async {
+      await _repo.save(cleared);
       _lastPersist = DateTime.now();
-      _dirty = false;
+      // Only claim clean if nothing arrived while we wrote — a delta landing
+      // mid-reset must not be silently overwritten by the precomputed zero.
+      if (identical(state, cleared) || _dirty == false) _dirty = false;
       state = cleared;
     });
+    _writeChain = queued.catchError((Object _) {});
+    return queued;
   }
 
   void resetOdometer() {
