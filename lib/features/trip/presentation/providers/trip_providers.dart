@@ -106,6 +106,35 @@ class TripController extends Notifier<TripState> {
     return raw * ref.read(calibrationProvider);
   }
 
+  /// Zero EVERYTHING — both trips and the lifetime odometer.
+  ///
+  /// Asked for by Amirali's father after the first real road test and confirmed
+  /// twice, because it is irreversible.
+  ///
+  /// ## It is a LONG PRESS, not a tap, and that is deliberate
+  ///
+  /// The odometer is the vehicle's lifetime total. Nothing restores it and no
+  /// undo exists. C0 — the worst defect found in this app — was a plain tap
+  /// zeroing ONE trip counter, so putting a wipe-everything action on a tap
+  /// would reintroduce C0 with a far larger blast radius. The button reads
+  /// "RST ALL / HOLD" so the gesture is discoverable rather than hidden.
+  ///
+  /// ## What "speed" means in the request
+  ///
+  /// The live speedometer cannot be zeroed: it is a GPS reading, so it would
+  /// blank for a fraction of a second and the next fix would restore it. The
+  /// AVERAGE speed is an accumulator like the trips, so that is what is cleared,
+  /// by the caller, which owns that provider.
+  void resetAll() {
+    // Flush the reconciler for the same reason [resetTrip] does: those metres
+    // were covered BEFORE this reset, so leaving them queued would drip them
+    // into the freshly zeroed counters over the following seconds and a "reset
+    // everything" would quietly not stay at zero.
+    _settleOwedMetres();
+    state = state.copyWith(tripA: 0, tripB: 0, odometer: 0);
+    _persistNow();
+  }
+
   void resetOdometer() {
     // Same reasoning as resetTrip: flush first so the trips still receive what
     // was already covered, then zero the odometer.
