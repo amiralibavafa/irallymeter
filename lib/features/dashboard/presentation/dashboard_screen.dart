@@ -151,9 +151,16 @@ class _LandscapeLayout extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Hero speed — biggest possible.
+        // Speed. NO LONGER THE HERO, and that is the point.
+        //
+        // Amirali's father asked for Trip A bigger and the speed smaller after
+        // the first road test, which is the right instinct for this instrument:
+        // a rally crew navigates on DISTANCE. Trip A is the number read aloud
+        // at every junction, while speed is glanceable context. The old 5:4
+        // split gave the largest area on the cluster to the number that matters
+        // least.
         Expanded(
-          flex: 5,
+          flex: 3,
           child: Container(
             decoration: BoxDecoration(
               color: AppColors.surface,
@@ -164,12 +171,18 @@ class _LandscapeLayout extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
-        // Instruments column.
+        // Instruments column, now the larger half.
         Expanded(
-          flex: 4,
+          flex: 6,
           child: Column(
             children: [
-              const Expanded(child: TripReadout(counter: TripCounter.a)),
+              // Trip A takes twice the height of Trip B. Both readouts scale
+              // their digits to the box they are given, so this alone makes the
+              // primary number substantially larger with no font change.
+              const Expanded(
+                flex: 2,
+                child: TripReadout(counter: TripCounter.a),
+              ),
               const SizedBox(height: 8),
               const Expanded(child: TripReadout(counter: TripCounter.b)),
               const SizedBox(height: 8),
@@ -199,8 +212,10 @@ class _PortraitLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
+        // Same rebalance as landscape: distance is the product, speed is
+        // context. See the comment in _LandscapeLayout.
         Expanded(
-          flex: 4,
+          flex: 3,
           child: Container(
             width: double.infinity,
             decoration: BoxDecoration(
@@ -212,7 +227,7 @@ class _PortraitLayout extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        const Expanded(flex: 2, child: TripReadout(counter: TripCounter.a)),
+        const Expanded(flex: 4, child: TripReadout(counter: TripCounter.a)),
         const SizedBox(height: 8),
         Expanded(
           flex: 2,

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -57,9 +59,34 @@ class SpeedDisplay extends ConsumerWidget {
         // Leave room for the badge and the unit label beneath.
         final reserved = (compact ? 34.0 : 54.0) + (status.badge != null ? 26.0 : 0.0);
         final available = (c.maxHeight - reserved).clamp(48.0, double.infinity);
-        final size = c.maxHeight.isFinite
+        final byHeight = c.maxHeight.isFinite
             ? (available * 0.82).clamp(56.0, compact ? 120.0 : 320.0)
             : (compact ? 72.0 : 180.0);
+
+        // WIDTH MATTERS TOO, and leaving it out was very nearly a shipped
+        // defect. Height alone is what keeps the size independent of digit
+        // COUNT, which is the property the comment above describes. But the
+        // text still sits in the `FittedBox` below, so the instant the widest
+        // value stops FITTING the column, that FittedBox engages for "188" and
+        // not for "8" and the size becomes digit-count dependent again through
+        // the back door.
+        //
+        // It was measured, not reasoned: after the cluster was rebalanced to
+        // give Trip A more room, "8" rendered 267 px tall and "188" rendered
+        // 98.9 px in the same panel. That is a 63 % collapse as the car
+        // accelerates, considerably worse than the 25 % trip-readout swing C16
+        // was raised for.
+        //
+        // Three characters is the widest this instrument ever shows, and a
+        // full em per character is the worst-case advance for any font. So
+        // capping at maxWidth / 3 guarantees the widest value fits without
+        // scaling, at any column width, on any font. The FittedBox stays as the
+        // guard it was always meant to be rather than as a participant in
+        // normal sizing.
+        const maxDigits = 3;
+        final byWidth =
+            c.maxWidth.isFinite ? c.maxWidth / maxDigits : double.infinity;
+        final size = math.min(byHeight, byWidth);
 
         return Column(
       mainAxisSize: MainAxisSize.min,
