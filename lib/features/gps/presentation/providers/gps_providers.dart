@@ -240,6 +240,31 @@ final gpsStateProvider = StreamProvider<GpsState>((ref) {
       return;
     }
 
+    // A GAP NOTHING ANNOUNCED IS STILL A GAP.
+    //
+    // Every other invalidation depends on the SERVICE saying something: an
+    // error, a stall, a resubscribe, or the 20 s no-fix heartbeat. A silence
+    // SHORTER than `gpsSilenceCheck` says nothing at all — the stream goes
+    // quiet and comes back — so none of those fire, and the first fix back
+    // derived its speed against a position from before the silence. Eight
+    // seconds under an underpass and 2 km on reads as 250 m/s.
+    //
+    // Only the provider can see this one, by comparing fix timestamps.
+    //
+    // THE THRESHOLD IS THE DISTANCE ENGINE'S, NOT ONE OF ITS OWN. I first used
+    // `gpsStaleTimeout` (3 s) and `display_speed_validity_test` 04 failed at
+    // once: the engine re-anchors at `gpsStaleTimeout * 3`, so a 5 s gap is one
+    // it still integrates across. A display that refused to derive over a gap
+    // the odometer happily integrates puts the two back in disagreement, which
+    // is precisely the C6 defect this file already carries a long comment
+    // about. They must answer "was that a gap" identically or not at all.
+    final last = prev;
+    if (last != null &&
+        s.timestamp.difference(last.timestamp).inMilliseconds >
+            AppConstants.gpsStaleTimeout.inMilliseconds * 3) {
+      invalidateAfterOutage();
+    }
+
     // A fix arrived: whatever was wrong is over.
     lastError = null;
 

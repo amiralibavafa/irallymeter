@@ -414,6 +414,46 @@ void main() {
               'heading on the first fix back');
     });
 
+    test('13 · a SHORT outage that emits no marker still invalidates',
+        () async {
+      // THE LAST GAP, and it needed the provider to notice for itself.
+      //
+      // Every invalidation so far depended on the SERVICE announcing something:
+      // an error, a stall, a resubscribe, or the 20 s no-fix heartbeat. A gap
+      // SHORTER than `gpsSilenceCheck` announces nothing at all — the stream
+      // simply goes quiet and comes back — so the guard never ran and the first
+      // fix back derived its speed across the silent interval.
+      //
+      // The gap has to clear the DISTANCE ENGINE's re-anchor threshold
+      // (`gpsStaleTimeout * 3` = 9 s) and stay under the 20 s heartbeat, or
+      // nothing is announced. 15 s of silence is an ordinary short tunnel.
+      final c = StreamController<GpsSample>();
+      final container = ProviderContainer(overrides: [
+        gpsRepositoryProvider.overrideWithValue(_FakeGps(c.stream)),
+      ]);
+      final sub = container.listen(gpsStateProvider, (_, __) {},
+          fireImmediately: true);
+
+      for (var i = 0; i < 6; i++) {
+        c.add(_movingFix(tMs: i * 1000));
+        await _pump();
+      }
+
+      // Silence. NOTHING is emitted — no error, no stall, no heartbeat.
+      // Then a fix 8 s later and 2 km away, stopped, with unusable Doppler.
+      c.add(_nanDopplerFix(tMs: 20000));
+      await _pump();
+      final st = container.read(gpsStateProvider).valueOrNull;
+
+      sub.close();
+      container.dispose();
+
+      expect(st?.smoothedSpeedMps ?? -1, lessThan(2.0),
+          reason: 'the speed was derived across a gap nothing announced. Only '
+              'the provider can see this one, because from the service side '
+              'nothing happened');
+    });
+
     test('04 · an error from the REAL service reaches the error UI', () async {
       // TESTS 01-03 ALL PASS AND STILL MISS THE PRODUCTION PATH. They inject a
       // fake repository that puts an error straight onto the stream, so they
