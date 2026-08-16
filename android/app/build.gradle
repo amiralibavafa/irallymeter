@@ -11,6 +11,11 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// Opt-in, per-invocation, never persisted in the repo: build a release APK with
+// the DEBUG key for manual sideloading. An env var rather than a Gradle -P
+// because `flutter build apk` does not forward arbitrary -P flags to Gradle.
+def sideloadBuild = System.getenv('IRALLYMETER_SIDELOAD') == '1'
+
 android {
     namespace = "com.irallyclub.irallymeter"
     compileSdk = flutter.compileSdkVersion
@@ -80,12 +85,16 @@ android {
             // A missing key is now a build error. Developers who do not have it
             // can still use debug builds, which is what they want anyway; the
             // only thing that breaks is producing a release nobody can update.
-            if (keystoreProperties['storeFile'] == null) {
-                throw new GradleException(
-                    "Release build requires android/key.properties. See docs/SIGNING.md. " +
-                    "Use a debug build if you do not have the signing key.")
-            }
-            signingConfig = signingConfigs.release
+            //
+            // The throw itself lives at the BOTTOM OF THIS FILE, not here. See
+            // the comment there: inside this block it also broke debug builds.
+            //
+            // SIDELOAD ESCAPE HATCH: with IRALLYMETER_SIDELOAD=1 and no key,
+            // fall back to the DEBUG key deliberately and loudly. See the guard
+            // at the bottom of this file for when that is the right thing.
+            signingConfig = (keystoreProperties['storeFile'] == null && sideloadBuild)
+                ? signingConfigs.debug
+                : signingConfigs.release
         }
     }
 }
@@ -116,3 +125,53 @@ flutter {
 // VERIFY the built artifact, never the source:
 //   aapt2 dump badging build/app/outputs/flutter-apk/app-release.apk | grep minSdk
 android.defaultConfig.minSdkVersion = 24
+
+// ⚠ FAIL CLOSED ON A MISSING KEY — BUT ONLY FOR AN ACTUAL RELEASE BUILD.
+//
+// This throw used to sit inline in `buildTypes { release { ... } }`. That block
+// is evaluated at CONFIGURATION time, and Gradle configures EVERY build type on
+// EVERY invocation regardless of the task requested. So a missing key did not
+// just block releases — it blocked `assembleDebug` as well:
+//
+//   $ flutter build apk --debug
+//   > Release build requires android/key.properties. ...
+//   Gradle task assembleDebug failed with exit code 1
+//
+// which made the reassuring comment up in that block ("developers who do not
+// have it can still use debug builds") false from the moment it was written.
+// Nobody without the keystore could build this project at all.
+//
+// Deciding in the task graph instead keeps the safety property exactly as
+// intended — no release artifact can ever be produced unsigned or debug-signed —
+// while letting debug and profile builds run on a machine that has no key.
+// THE SIDELOAD EXCEPTION. `IRALLYMETER_SIDELOAD=1` builds a release APK signed
+// with the DEBUG key, for installing by hand on a known device. It is opt-in per
+// invocation and is never written into the repo, so the default stays fail-closed
+// and nobody produces an unsignable store build by accident.
+//
+// It is not merely tolerable for sideloading, it is the CORRECT key there. Every
+// tester install to date is debug-signed (docs/SIGNING.md), and Android only
+// allows an update when the signing key matches — so the debug key is the one
+// that upgrades those phones IN PLACE and keeps their saved trips. A real release
+// key, or a freshly generated one, would be REFUSED by Android and force an
+// uninstall, which wipes every trip. The store-rejection argument that motivates
+// the guard simply does not apply to an APK nobody is uploading.
+//
+// ⚠ An APK built this way MUST NOT be uploaded to Cafe Bazaar, Myket or Play.
+gradle.taskGraph.whenReady { graph ->
+    def buildingRelease =
+        graph.allTasks.any { it.project.path == ':app' && it.name =~ /(?i)Release$/ }
+    if (keystoreProperties['storeFile'] == null && buildingRelease) {
+        if (sideloadBuild) {
+            logger.lifecycle(
+                "\n⚠ IRALLYMETER_SIDELOAD=1 — signing the RELEASE APK with the DEBUG key.\n" +
+                "  Fine for installing by hand. NOT distributable: every store rejects it.\n" +
+                "  For a real release, supply android/key.properties (docs/SIGNING.md).\n")
+        } else {
+            throw new GradleException(
+                "Release build requires android/key.properties. See docs/SIGNING.md. " +
+                "Use a debug build if you do not have the signing key, or set " +
+                "IRALLYMETER_SIDELOAD=1 to debug-sign a release APK for manual install.")
+        }
+    }
+}
