@@ -258,6 +258,58 @@ Its *numbers* are stale and should be corrected: it says 310 pass (**measured to
 `IPHONEOS_DEPLOYMENT_TARGET = 12.0` as deliberate floors when the real values are **24**
 and **13.0**. ⇒ **Amend, never replace.**
 
+### 8.8 §4.4 and §6 are in direct tension, and the plan must resolve it explicitly
+
+§4.4 says the rally stack "MUST NOT gain any API dependency". §6 requires a **bounded
+offline grace period** — after N days without reconciliation the cached entitlement
+stops being accepted. Those cannot both be literally true: enforcing revocation *is* a
+server dependency, just a lagged one.
+
+The tension is real and it has a sharp edge: **what happens at hour zero of day N+1
+while someone is mid-stage?** An entitlement that expires during a run would blank the
+co-driver's numbers at speed, which is the worst possible failure for this product.
+
+**Proposed resolution, to be signed off, not assumed:** entitlement is evaluated **only
+at session start**, never during a running session. Once a stage is running it runs to
+completion regardless of expiry. That keeps §4.4 true in the sense that matters — no
+network call is on the measurement path — while still bounding offline access.
+
+### 8.9 The eight analytics events have no defined destination
+
+§6.1 mandates instrumenting eight events. §5.1 says collect nothing beyond phone. There
+is **no analytics backend anywhere in this brief**, and two existing documents record
+"no analytics of any kind" as a deliberate position
+(`docs/SECURITY-REVIEW.md:73`, `docs/IRAN-CONSTRAINTS.md:127-130`), which the onboarding
+copy in §8.1 then promises to the user.
+
+⇒ **The sink must be named in `INTERFACES.md` or these events are undefined work.** The
+only option consistent with every other constraint is a first-party endpoint on our own
+backend, storing a bare event name plus a server timestamp against the user id, with no
+third-party SDK and no device fingerprinting. That is a decision for sign-off.
+
+### 8.10 Infobip 2FA contract — grounded from the OpenAPI spec
+
+Confirmed shapes (so §4.7's "do not roll your own OTP" can be honoured exactly):
+
+- **Send** → returns `pinId`, plus `smsStatus` (`MESSAGE_SENT` | `MESSAGE_NOT_SENT`),
+  `ncStatus` (`NC_DESTINATION_REACHABLE` | `NC_DESTINATION_NOT_REACHABLE` | … — SMS is
+  suppressed only when not reachable), `to`, `externalMessageId`.
+- **Verify** → `POST /2fa/2/pin/{pinId}/verify`, body `{"pin": "…"}`, returns
+  `verified` (boolean), **`attemptsRemaining`** (int), `msisdn`, `pinError`, `pinId`.
+- **Resend** → `POST /2fa/2/pin/{pinId}/resend`.
+- Templates are created once per app: `POST /2fa/2/applications/{appId}/messages`, with
+  `messageText` containing a `{{pin}}` placeholder, plus `pinLength` and `pinType`.
+
+**Design consequence:** `pinId` is Infobip's handle and the client should never see it.
+The backend issues its own opaque, short-lived `otpToken`, stores the `pinId` server-side
+against it, and never returns the `pinId` — which also satisfies §4.6 by construction
+rather than by remembering not to log it. `attemptsRemaining` maps straight onto the
+10-attempt envelope in §5.5.
+
+⚠ **Deliverability to Iranian MSISDNs via Infobip is unverified and unverifiable here.**
+It is a routing question for the account, not a code question, and no amount of correct
+integration fixes it if the route does not carry. Flagging it now rather than at launch.
+
 ---
 
 ## 9. Baseline captured for this phase
@@ -270,7 +322,8 @@ and **13.0**. ⇒ **Amend, never replace.**
 | `test/` (excl. fixtures) | 45 files / 10,315 lines | same |
 | Branch | `SA-V4`, cut from `SA-V3` `8af9bcb` | `git rev-parse` |
 | `origin/main` | `c151ca2`, single commit, never advanced | `git rev-list --left-right --count main...SA-V3` = `0 115` |
-| Toolchain | Flutter 3.44.8 / Dart 3.12.2, Node v22.23.2, `prisma` CLI present | `flutter --version`, `node --version` |
+| Toolchain | Flutter 3.44.8 / Dart 3.12.2; `prisma` CLI at `/opt/homebrew/bin` | `flutter --version` |
+| ⚠ Node | **TWO installs. `~/.local/bin/node` v22.23.2 (PATH #3) SHADOWS Homebrew's v26.7.0 (PATH #7).** Which one runs the backend is a decision, not a footnote — pin it in `.nvmrc`/`engines` or the runtime differs between this machine, CI and the server. | `command -v node`, `node --version`, `brew list --versions node` |
 | CI | none | `find` for `.github`, `.gitlab*`, `.circleci`, `.buildkite` → empty |
 
 ---
