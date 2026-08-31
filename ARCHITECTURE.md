@@ -212,7 +212,7 @@ not a fresh activity; and `AppDelegate.swift` overrides neither
 `application(_:open:options:)` nor `continue userActivity`, and uses the newer
 `didInitializeImplicitFlutterEngine` hook (`:13`).
 
-### 8.5 A login gate needs two coupled changes, and one fights a documented decision
+### 8.5 ~~A login gate needs two coupled changes~~ — SUPERSEDED 2026-08-30, see 8.5b
 
 `app_router.dart:48` reads the onboarding flag with `ref.read`, **not** `ref.watch`, and
 the comment at `:44-46` says why: a rebuilt router "would reset the navigation stack
@@ -222,7 +222,34 @@ And a gate placed only in the router is not a gate: `app.dart:29` starts the GPS
 distance engine on its own condition, so the measurement stack would spin up behind the
 login screen. **Both sites must change together.**
 
-### 8.6 ZarinPal amount unit — answered from the vendor's own docs
+### 8.5b The gate goes ABOVE the app, and touches one line
+
+Saam's constraint — *"don't touch the app, it works perfectly"* — turns out to produce a
+better design than the one in 8.5, so 8.5 is kept for the record and superseded here.
+
+`main.dart:97` renders `child: const IRallyMeterApp()` inside the single `ProviderScope`.
+Wrapping **that** in an auth gate means an unauthorised user never mounts
+`IRallyMeterApp` at all, which gets both properties 8.5 said were in tension, for free:
+
+- `app_router.dart` is **untouched** — the deliberate `ref.read` decision at `:48` is not
+  disturbed, so the navigation stack can never reset under the driver.
+- `app.dart` is **untouched** — and because the subtree is not mounted, the GPS and
+  distance engine cannot start behind the login screen. That was the actual hazard in 8.5.
+
+Enumerated every construction site before claiming this: `lib/main.dart:97` and
+`test/onboarding_test.dart:225` are the only two. **The unit test constructs
+`IRallyMeterApp` directly, so it bypasses the gate and is unaffected.**
+
+⚠ **One real consequence.** `integration_test/app_flows_test.dart` calls `app.main()`
+**six times** (`:46,72,112,138,195`), so all five integration tests would land on the
+login screen. The fix is not to weaken them: the gate reads its state through the same
+storage seam the onboarding flag already uses, so each test seeds an authorised state
+exactly as `onboarding_test.dart:181` already seeds `onboarded` — "the gate is seeded
+from storage, not assumed".
+
+### 8.9 resolved: **analytics is CUT.** Saam's decision, 2026-08-30. The tension below
+stands as the reasoning; nothing is being built.
+ — answered from the vendor's own docs
 
 `SPEC.md` §5.6 requires this be verified rather than assumed. From ZarinPal's
 documentation via context7:
@@ -274,7 +301,7 @@ at session start**, never during a running session. Once a stage is running it r
 completion regardless of expiry. That keeps §4.4 true in the sense that matters — no
 network call is on the measurement path — while still bounding offline access.
 
-### 8.9 The eight analytics events have no defined destination
+#### (8.9, original wording, kept because the reasoning is what justified the cut)
 
 §6.1 mandates instrumenting eight events. §5.1 says collect nothing beyond phone. There
 is **no analytics backend anywhere in this brief**, and two existing documents record

@@ -148,13 +148,11 @@ Consumed by **ZarinPal**, not by the app. Query `?Authority=…&Status=OK|NOK`.
 Backend verifies with ZarinPal, then **302-redirects into the app** via the deep link in
 §7. It never trusts `Status` (`SPEC.md` §4.2).
 
-### `POST /analytics/event` — *pending the §8.9 decision*
-```json
-→ { "name": "otp_requested", "at": "2026-08-30T19:00:00Z" }
-← 204
-```
-Closed enum of eight names, `SPEC.md` §6.1. **No properties, no device fingerprint, no
-third-party SDK.** Blocked on sign-off; see the questions at the end.
+### ~~`POST /analytics/event`~~ — **CUT 2026-08-30 by Saam's decision**
+`SPEC.md` §6.1's eight events are **not being built.** Reason recorded rather than
+erased: the app already promises users "no analytics" and two internal documents record
+that as a deliberate position, so instrumenting the funnel would have contradicted a
+shipped promise for no consumer. **Do not re-add without a new decision.**
 
 ---
 
@@ -232,7 +230,10 @@ believes only that (`SPEC.md` §4.2).
 
 1. **§5** — entitlement evaluated at session start only, never mid-session, and
    `graceDays = 14`.
-2. **§3 `/analytics/event`** — first-party sink, or drop the eight events entirely.
-3. **§2** — 15-minute access token, 60-day refresh.
-4. **§7** — the `irallymeter://` scheme name, which is baked into the ZarinPal callback
+2. **§2** — 15-minute access token, 60-day refresh.
+3. **§7** — the `irallymeter://` scheme name, which is baked into the ZarinPal callback
    config and is painful to change afterwards.
+
+**Settled 2026-08-30, no longer open:** analytics is cut · the backend is a separate
+repo · the app is gated by a wrapper above `IRallyMeterApp`, so `app.dart` and
+`app_router.dart` are not touched at all.

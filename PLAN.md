@@ -8,7 +8,65 @@ Inputs: `SPEC.md` (acceptance), `ARCHITECTURE.md` (what is actually here),
 
 ---
 
-## §0 Four questions that block Phase 2
+## §0 DECISIONS TAKEN 2026-08-30
+
+**Q1 — ANSWERED: the backend is a SEPARATE REPO.** `irallymeter-api`. Amirali's Flutter
+repo never gains a server, a Node toolchain or a set of secrets, and he can merge the
+client work without inheriting any of it.
+
+**Q3 — ANSWERED: analytics is CUT, and the rally app is not to be touched.**
+Saam: *"dont touch the app, it works perfectly. So we dont want to change anything at
+all so be sure of it. Just the login feature we want added."*
+
+⇒ **The operating rule for every remaining phase.** Read literally it is impossible —
+adding a login screen is by definition a change to the app — so it is read as the thing
+he means: **the existing rally application does not change. Only new surface is added.**
+
+**What that rules out, concretely.** Nothing under `features/{gps,distance,trip,compass,
+dashboard,map,settings,replay,route_log,stage_timer,average_speed,onboarding}` is
+modified. Not `app.dart`. Not `app_router.dart`. Not `app_constants.dart`. Not one line
+of the measurement engine, and not the `replay/` regression net.
+
+**What must still change, stated up front so none of it is a surprise:**
+
+| File | Change | Why unavoidable |
+|---|---|---|
+| `lib/main.dart:97` | **one line** — `IRallyMeterApp` → the auth gate wrapper | there is no other way to put a screen in front of the app |
+| `pubspec.yaml` | new dependencies | no HTTP client and no secure storage exist today |
+| `android/…/AndroidManifest.xml` | deep-link intent-filter | the payment gateway has nowhere to return to |
+| `ios/Runner/Info.plist` | `CFBundleURLTypes` | same, iOS side |
+| `android/app/build.gradle` | the §1 build fix | separate bug fix; he cannot build without it |
+| new files under `lib/features/auth/` | the feature itself | — |
+
+Everything else in the client is **new files only**. The design that makes this possible
+is in `ARCHITECTURE.md` §8.5b, and it is genuinely better than what I had planned before
+his answer: gating above `IRallyMeterApp` also stops the GPS engine starting behind the
+login screen, which the earlier two-site plan had to handle by hand.
+
+⚠ **The one honest cost.** `integration_test/app_flows_test.dart` calls `app.main()` six
+times, so all five integration tests would meet the login screen. They will seed an
+authorised state through the same storage seam the onboarding flag already uses. **No
+assertion is weakened** — that is the repo's existing pattern, not a new exemption.
+
+---
+
+## §0b Still open
+
+**Q2 — is `SA-V4` on `SA-V3` the right base?** Unchanged: `SA-V1→V3` are 115 unmerged
+commits with no PR. Recommendation stands — keep the base, and push Amirali to merge
+`SA-V3` first.
+
+**Q4 — the onboarding copy.** `permission_rationale_screen.dart:179-184` tells the user
+*"There is no account, no analytics and no server."* Cutting analytics fixes one third of
+that; **"no account" and "no server" are still made false by this feature.** This is the
+one place where "change nothing" and "be truthful to users" collide. It is a text-only
+edit in one paragraph, no functional risk, and the two tests that touch it assert only
+the heading. **Recommended, but it is his product's voice and his call — if the answer is
+still no, the copy ships as-is and this note is the record that it was raised.**
+
+---
+
+## §0c Superseded — the original four questions
 
 **Q1 — Where does the backend live?** This is a Flutter repo owned by Amirali. `main` is
 a single commit by him and has never advanced; `SA-V1→V3` are **115 unmerged commits with
@@ -65,11 +123,10 @@ task must still fail loudly.
    the one place a bug costs real money.
 6. **Native deep link.** Android intent-filter + `onNewIntent`; iOS `CFBundleURLTypes` +
    `AppDelegate`. Small, but on the critical path and currently absent on both platforms.
-7. **Flutter client.** Secure storage, install UUID, API client, entitlement verification,
-   then the screens. The login gate touches **two** coupled sites (`app_router.dart:48`
-   and `app.dart:29`) and fights a documented `ref.read` decision — that is the delicate
-   part of the whole client, not the UI.
-8. **The onboarding copy rewrite**, in the same release as the gate. Never after.
+7. **Flutter client.** Secure storage, install UUID, API client, entitlement
+   verification, then the screens — **all new files**, plus the one-line swap at
+   `main.dart:97` (`ARCHITECTURE.md` §8.5b). Then seed the five integration tests.
+8. **The onboarding copy rewrite** — *only if Q4 comes back yes.*
 
 Tests are written **first** for each of the twenty cases in `SPEC.md` §7, per that
 section. Infobip and ZarinPal are mocked at the HTTP boundary throughout.
