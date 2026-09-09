@@ -105,3 +105,103 @@ so a client that read it as required would treat a missing blob as "not entitled
 The client therefore models it as **nullable**, and a null blob means only *"no offline
 proof available"* — never *"not entitled"*. Online, the subscription status is the
 authority and the blob is not consulted at all.
+
+---
+
+## D-3 — The backend and `INTERFACES.md` disagree on almost every shape
+
+**Found:** 2026-09-08, during Phase 3, while writing the client's force-login call.
+**Status: OPEN. Two decisions for Saam, and they are different kinds of decision.**
+
+### The fact that settles which side wins
+
+`INTERFACES.md` line 3, unchanged since it was written:
+
+> **STATUS: PROPOSED. Not signed off. No implementation may start against it yet.**
+
+It never became binding. `SPEC.md` §5.2 says it *"wins on shapes"*, but that sentence
+describes a document that was never ratified, and §8 lists three things that had to be
+signed off **before Phase 2 started** and never were. Phase 2 was then built to its own
+design, and that design is the only implemented artifact: it runs, and 163 tests cover it.
+
+⇒ **The Phase 3 client is built against the backend as it actually exists.** Phase 2 is
+not reopened. `INTERFACES.md` should be amended to describe what was built, and that
+amendment is a sign-off, not a code change.
+
+⚠ The error envelope and the closed error-code enum (§1) **do** match the backend
+exactly, so `SPEC.md` §6.2's eight UI states are unaffected by any of this. The client
+still switches on `code` and never parses `message`.
+
+### Category 1 — shape divergences. Amend the document; nothing is broken.
+
+| Route / object | `INTERFACES.md` says | Backend actually does |
+|---|---|---|
+| `verify-code` body | `pin` | **`code`** |
+| `force-login` body | `{otpToken, device}` | **`{otpToken, code, device}`** |
+| `force-login` reply | `{session, revokedDevice}` | `{next, session}` — **no `revokedDevice`** |
+| session object | `user{id,phone}`, `device{…}`, nested `subscription{status,serverTime,plan,entitlement}` | **flat**: `accessToken`, `accessExpiresAt`, `refreshToken`, `refreshExpiresAt`, `entitlement`, `subscriptionExpiresAt`. No user, no device, no plan, no status, no `serverTime` |
+| membership | `GET /subscription/status` → status/expiresAt/serverTime/plan/entitlement | **`GET /membership`** → `{active, expiresAt}` only |
+| payment start | `POST /payment/create` → `{paymentId, redirectUrl, amount, currencyUnit}` | **`POST /payment/start`** → `{paymentUrl, authority}` |
+| logout | body `{refreshToken}` | **Bearer access token**, no body |
+| `POST /auth/login` | a convenience alias | **does not exist** |
+| `POST /analytics/event` | reinstated 2026-09-08 | **not a route.** Analytics is recorded server-side inside each handler; the app never posts an event |
+
+**On `force-login` the backend is RIGHT and the document is wrong, not merely different.**
+`INTERFACES.md` §3 shows `{otpToken, device}` with no code, which taken literally means
+anyone who can call `/auth/send-code` for a number can evict that number's real device.
+The backend re-verifies the code, and its own comment says why. Amend the document.
+
+**`serverTime` is gone, and the client absorbs it without a backend change.** The
+monotonic clock is seeded from the entitlement blob's `iat`, which is server truth at
+signing time. ⚠ The cost, stated rather than implied: `iat` only arrives when a **new
+blob** does, and a build with no entitlement key gets no server time at all and runs on
+the wall-clock ratchet alone. It is not a full replacement for `serverTime`.
+
+### Category 2 — a missing capability. This one is backend work and it blocks payment.
+
+> **⚠⚠ A USER WHO NEEDS TO PAY CANNOT REACH THE PAYMENT ROUTE.**
+
+Traced end to end, not inferred from one file:
+
+1. `accounts/service.ts` `completeVerification` returns, for both "never subscribed" and
+   "lapsed": `{ next: "PAYMENT_REQUIRED", userId }` — **no session, no token.**
+2. `app.ts` `/auth/verify-code` forwards exactly that: `{next, userId}`.
+3. `app.ts` `/payment/start` opens with `requireAuth(req, deps.tokens)`, i.e. a **Bearer
+   access token**.
+4. Nothing in between mints one.
+
+So the only users who ever need to pay — new signups and lapsed renewals — hold a bare
+`userId` and no credential, and every call to `/payment/start` from that state is a
+`401 UNAUTHORIZED`. `INTERFACES.md`'s `signupToken` is precisely the thing that solves
+this, and it was not built.
+
+**It was never caught because `/payment/start` has no route test.** The only payment
+assertion in `test/routes.test.ts` is that `verify-code` returns `PAYMENT_REQUIRED`; the
+route behind it is never called. A green suite is not coverage of a path nobody exercises.
+
+**Second, in the same category:** `INTERFACES.md` §7 requires the callback to
+**302-redirect into the app** via `irallymeter://payment/callback`. The backend's
+`handleCallback` returns `{ok, expiresAt}` as **JSON**. Consequence, stated as the user
+would experience it: *after paying, the user is left looking at a JSON body in a mobile
+browser, with no route back into the app.*
+
+### What Phase 3 therefore delivers, and what it does not
+
+- **Delivered in full:** phone entry, OTP, `DEVICE_CONFLICT`, Force Login, refresh with
+  rotation, the launch gate, offline entitlement. That is seven of `SPEC.md` §6.2's eight
+  states and every one of them is reachable and testable today.
+- **Not delivered, deliberately:** the payment call itself, and §7's native deep-link
+  plumbing (Android intent-filter, iOS `Info.plist` + `AppDelegate`). Building a client
+  against a route it cannot authenticate to, or wiring a return path for a server that
+  never redirects, would be scaffolding for a flow that cannot complete. The membership
+  screen is built and states the block honestly instead of pretending.
+- `url_launcher` is committed and currently **unused**; it is kept because the payment
+  flow is deferred, not cancelled.
+
+### How this closes
+
+1. Amend `INTERFACES.md` to describe the built backend (category 1), and
+2. decide the two backend items in category 2: mint a payment-scoped token for
+   `PAYMENT_REQUIRED`, and make the callback redirect into the deep link.
+
+Neither is Phase 3 work, and neither blocks anything above.

@@ -6,6 +6,9 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'app.dart';
 import 'core/di/providers.dart';
 import 'core/storage/storage_service.dart';
+import 'features/account/data/secure_store.dart';
+import 'features/account/presentation/account_gate.dart';
+import 'features/account/presentation/providers/account_providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -93,8 +96,21 @@ Future<void> main() async {
     ProviderScope(
       overrides: [
         storageProvider.overrideWithValue(storage),
+        // The account layer's secrets live in the platform keystore, never in
+        // Hive. Overridden here for the same reason `storageProvider` is: the
+        // plugin needs a live binding, and tests get an in-memory double.
+        secureStoreProvider.overrideWithValue(PlatformSecureStore()),
       ],
-      child: const IRallyMeterApp(),
+      // ⚠ THE GATE IS THIS ONE WRAPPER, AND NOTHING ELSE MOVES.
+      //
+      // `app.dart` and `app_router.dart` are untouched, which is what Saam
+      // asked for: "the app wont be and cant be touched as the team approved
+      // it… we are only creating that gate i mentioned".
+      //
+      // It also means the GPS engine cannot start behind the login screen.
+      // `IRallyMeterApp` is what watches `rawGpsStreamProvider` (app.dart:29),
+      // and it is not built at all until the gate admits.
+      child: const AccountGate(child: IRallyMeterApp()),
     ),
   );
 }

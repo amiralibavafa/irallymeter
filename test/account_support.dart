@@ -14,6 +14,10 @@ class FakeSecureStore implements SecureStore {
 
   Map<String, String> get snapshot => Map<String, String>.unmodifiable(_values);
 
+  /// Puts a value in place WITHOUT recording a write, so a test can describe
+  /// the state a device is already in rather than the steps that got it there.
+  void seed(String key, String value) => _values[key] = value;
+
   @override
   Future<String?> read(String key) async => _values[key];
 
