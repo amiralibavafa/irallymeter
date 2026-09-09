@@ -55,7 +55,18 @@ Ghasedak, Melipayamak — all showing the same shape: the caller supplies the co
    therefore an unbounded item on the critical path** — which is what makes finding 1.3
    below the deciding factor rather than a nice-to-have.
 
-### 1.3 ⚠⚠ Onboarding is the real blocker, and it is a question for you, not for me
+### 1.3 ⚠ Onboarding — **RESOLVED 2026-09-08, NOT A BLOCKER. Kept for the record.**
+
+> **Saam, 2026-09-08:** *"why does it matter who owns the sms.ir we are building it for a
+> client they will give us the api key and the phonenumber"*
+
+**The account is the client's.** They hold the SMS.ir panel, they do the national-ID
+onboarding, and they hand over the API key, the template id and the line number. Every
+requirement below is therefore theirs and already satisfied on their side. It is recorded
+because it was raised as the headline finding and a future reader would otherwise re-raise
+it. **Do not re-open this.**
+
+The original text follows unchanged.
 
 Four providers' own docs (SMS.ir, Melipayamak, Farapayamak, IPPanel) **independently
 converge** on the same requirement: an **Iranian national ID (کد ملی)** photo, plus a mobile
@@ -115,7 +126,19 @@ unambiguous from the vendor's own example.
 
 **Cost of choosing it:** no official Node SDK. We write a thin `fetch` wrapper ourselves,
 which is a handful of lines against a simple REST endpoint and is **better than depending on
-a `[SINGLE SOURCE]` third-party package** for the auth path.
+an abandoned third-party package** for the auth path.
+
+**⚠ CORRECTION 2026-09-08, measured against the npm registry rather than search results.**
+This report listed `@cryptommer/smsir`, `sms-typescript` and `sms-ir-nodejs` as SMS.ir Node
+packages. Checked directly:
+- `sms-ir-nodejs` **does not exist on npm** (404).
+- `@cryptommer/smsir` exists but was **last published 2022-04-05 with 4 weekly downloads** —
+  abandoned, and not something to put on an authentication path.
+- **`sms-typescript` is NOT an SMS.ir client at all.** Its repository is
+  `IPeCompany/SmsPanelV2.TypeScript`, i.e. **IPPanel** — a different vendor in this same
+  matrix. It was filed under the wrong provider here.
+⇒ **There is no maintained SMS.ir Node client.** The adapter calls the documented REST
+endpoint directly, which is the decision already implemented in `irallymeter-api`.
 
 ### Runner-up: **Kavenegar**
 
@@ -167,8 +190,8 @@ Listed because the brief requires unverified things to be marked, not buried.
 ## 5. What I need from you before Phase 2 starts
 
 1. **Approve a provider** (or reject both and say why). This is the gate.
-2. **Who owns the SMS account — an Iranian entity or not?** §1.3. If the answer is "not",
-   tell me and the ranking gets redone against that constraint rather than around it.
+2. ~~**Who owns the SMS account?**~~ **ANSWERED 2026-09-08: the client's.** They provide the
+   API key, template id and line number. §1.3. Closed.
 3. Optional but cheap: if you or Amirali can ask the chosen vendor **two questions directly**
    — the real template-approval turnaround, and whether they offer a delivery webhook — that
    closes the two gaps public docs could not.
