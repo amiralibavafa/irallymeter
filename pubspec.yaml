@@ -61,6 +61,12 @@ dependencies:
   # and nothing else. Pure Dart, so it verifies with no network and no
   # platform channel — the valley case this whole blob exists for.
   cryptography: ^2.9.0
+  # The handset's model name, for ONE purpose: INTERFACES.md §3 requires the
+  # DEVICE_CONFLICT screen to carry a name that is "enough to let a person
+  # recognise their own other phone". No plugin-free Dart API returns a model
+  # name — `Platform.operatingSystemVersion` gives "Android 14 (API 34)", which
+  # would make every conflict screen identical and useless.
+  device_info_plus: ^11.2.0
 
 dev_dependencies:
   flutter_test:
