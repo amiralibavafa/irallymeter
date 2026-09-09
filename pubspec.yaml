@@ -67,6 +67,12 @@ dependencies:
   # name — `Platform.operatingSystemVersion` gives "Android 14 (API 34)", which
   # would make every conflict screen identical and useless.
   device_info_plus: ^11.2.0
+  # Opens the ZarinPal payment page in the system browser. INTERFACES.md §7
+  # makes the gateway an EXTERNAL redirect that comes back through the
+  # irallymeter:// deep link, so there is no in-app path that avoids this.
+  # Its three desktop platform packages were already in the tree via
+  # share_plus / file_picker; only the plugin itself is new.
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:
