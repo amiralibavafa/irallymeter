@@ -60,3 +60,22 @@ make a number match, and do not weaken an assertion to make a test pass.
 | Phase | Date | Tests | Analyze | Notes |
 |---|---|---|---|---|
 | Pre-work capture | 2026-09-08 | 433/1/0 | 2 | Baseline. No accounts code written yet. |
+| Phase 3 deps (1) | 2026-09-08 | 433/1/0 | 2 | `http`, `flutter_secure_storage`, `cryptography`. Measured ALONE, no source change, so a later move is attributable to code and not to the dependency tree. |
+| Phase 3 deps (2) | 2026-09-08 | 433/1/0 | 2 | `device_info_plus`. Required by the contract: `DEVICE_CONFLICT` must name a phone its owner can recognise, and no plugin-free Dart API returns a model name. |
+| Phase 3 deps (3) | 2026-09-08 | 464/1/0 | 2 | `url_launcher`. Currently UNUSED — payment is deferred, see `DEVIATIONS.md` D-3. |
+| Phase 3 identity | 2026-09-08 | 464/1/0 | 2 | Installation UUID, monotonic clock, entitlement verifier. **+31.** Cross-language fixture: a blob signed by the real backend signer, verified in Dart. |
+| Phase 3 gate | 2026-09-08 | **475/1/0** | 2 | The gate, the login flow, the four screens. **+42 total.** Offline invariant falsified: adding one network call to `restore()` turns 3 tests red. |
+
+**The rally baseline never moved.** Every number above is 433 plus new account tests;
+no pre-existing test was edited, skipped, or weakened, and `flutter analyze` stayed at
+its 2 pre-existing issues throughout.
+
+## What Phase 3 did NOT touch
+
+`git diff d204955..HEAD --stat` covers only: `pubspec.*`, generated plugin registrants,
+`lib/main.dart` (three imports and one wrapper), `lib/features/account/**` (new),
+`test/account_*` (new), `DEVIATIONS.md` (new) and this file.
+
+**`app.dart`, `app_router.dart`, and every GPS, distance, trip, tunnel and compass file
+are untouched**, which is the point of putting the gate in `main()` rather than in the
+router. The one skip is still `road_scenarios_test` 12 at full strength.
