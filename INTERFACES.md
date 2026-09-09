@@ -60,12 +60,12 @@ or broken phone locks the owner out of their own paid account permanently.
 |---|---|---|---|
 | `OTP_INVALID` | 401 | Wrong PIN | Show retry, decrement attempts |
 | `OTP_EXPIRED` | 401 | PIN TTL elapsed, or `otpToken` unknown | Send them back to phone entry |
-| `OTP_ATTEMPTS_EXHAUSTED` | 429 | Infobip `attemptsRemaining` hit 0 | Back to phone entry, new send required |
-| `OTP_SEND_FAILED` | 502 | Infobip returned `MESSAGE_NOT_SENT` or unreachable | "Could not send the code", offer retry |
+| `OTP_ATTEMPTS_EXHAUSTED` | 429 | Provider/our attempt counter hit 0 | Back to phone entry, new send required |
+| `OTP_SEND_FAILED` | 502 | Provider rejected the send or was unreachable | "Could not send the code", offer retry |
 | `RATE_LIMITED` | 429 | Our own limiter (§5.5) | Show `retryAfterSeconds` |
 | `DEVICE_CONFLICT` | 409 | Account already active on another device | The "already active elsewhere" screen + Force Login |
 | `SUBSCRIPTION_EXPIRED` | 402 | Valid session, lapsed subscription | Membership/renewal screen |
-| `NO_SUBSCRIPTION` | 402 | Account exists, never subscribed | Membership screen |
+| `NO_ACCOUNT` | 402 | Verified phone, no account or never subscribed | Membership screen |
 | `UNAUTHORIZED` | 401 | Missing/invalid/expired access token | Silent refresh, then re-auth |
 | `SESSION_REVOKED` | 401 | Refresh token revoked, or reuse detected | Full logout, clear local state |
 | `DEVICE_REVOKED` | 401 | This device was revoked by a Force Login elsewhere | Full logout, explain why |
@@ -86,7 +86,7 @@ exactly who you are and you must pay".
 |---|---|---|---|
 | Access | **15 minutes** | client memory + secure storage | `Authorization: Bearer <jwt>` |
 | Refresh | **= `subscription.expiresAt`** (R1), rotated on every use | secure storage only | request body of `/auth/refresh` only |
-| `otpToken` | **15 minutes**, single use | client memory only | request body of `/auth/verify-otp` |
+| `otpToken` | **15 minutes**, single use | client memory only | request body of `/auth/verify-code` |
 | Entitlement blob | see §5 | secure storage | never sent to the server |
 
 **R1 in one line:** a refresh token is minted with `expiresAt = subscription.expiresAt`,
@@ -106,18 +106,18 @@ database round trip on every request.
 
 ## 3. Routes
 
-### `POST /auth/send-otp`
+### `POST /auth/send-code`
 ```json
 → { "phone": "09121234567" }
 ← 200 { "otpToken": "opaque-…", "expiresAt": "2026-08-30T19:15:00Z", "attemptsAllowed": 10 }
 ```
 Phone is normalised to E.164 **before** anything else (`SPEC.md` §4.8): `09xxxxxxxxx` →
 `+989xxxxxxxxx`. `+989…`, `989…`, `00989…` and `09…` all resolve to one account.
-**The response never contains Infobip's `pinId`** — it is held server-side against
+**The response never contains the provider's own handle** — it is held server-side against
 `otpToken` (`ARCHITECTURE.md` §8.10). The response is **identical whether or not an
 account exists**, so this endpoint is not an account-enumeration oracle.
 
-### `POST /auth/verify-otp`
+### `POST /auth/verify-code`
 ```json
 → { "otpToken": "opaque-…", "pin": "123456",
     "device": { "deviceId": "uuid-v4", "platform": "android|ios",
@@ -141,12 +141,12 @@ let a person recognise their own other phone, not enough to profile it.
 ← 200 { "session": { …§4… }, "revokedDevice": { "deviceName": "iPhone 13" } }
 ```
 Requires a **fresh, unused** `otpToken` — a Force Login can never be replayed from a
-token already spent on `/auth/verify-otp`. Revokes the prior device and **every** refresh
+token already spent on `/auth/verify-code`. Revokes the prior device and **every** refresh
 token in its family, atomically, then registers the new device.
 
 ### `POST /auth/login`
 Convenience alias for an existing account with an already-registered `deviceId`; same
-response shapes as `verify-otp`'s `SESSION` / `DEVICE_CONFLICT`. Requires a valid
+response shapes as `verify-code`'s `SESSION` / `DEVICE_CONFLICT`. Requires a valid
 refresh token, not an OTP.
 
 ### `POST /auth/refresh`
@@ -187,11 +187,42 @@ Consumed by **ZarinPal**, not by the app. Query `?Authority=…&Status=OK|NOK`.
 Backend verifies with ZarinPal, then **302-redirects into the app** via the deep link in
 §7. It never trusts `Status` (`SPEC.md` §4.2).
 
-### ~~`POST /analytics/event`~~ — **CUT 2026-08-30 by Saam's decision**
-`SPEC.md` §6.1's eight events are **not being built.** Reason recorded rather than
-erased: the app already promises users "no analytics" and two internal documents record
+### `POST /analytics/event` — **REINSTATED 2026-09-08. The 8-30 cut is recorded below, not erased.**
+
+**The 2026-08-30 decision, kept verbatim as the thing that was reversed:** *"CUT by Saam's
+decision. `SPEC.md` §6.1's eight events are not being built. Reason recorded rather than
+erased: the app already promises users 'no analytics' and two internal documents record
 that as a deliberate position, so instrumenting the funnel would have contradicted a
-shipped promise for no consumer. **Do not re-add without a new decision.**
+shipped promise for no consumer. Do not re-add without a new decision."*
+
+**The new decision:** the 2026-09-08 brief specifies nine events by name, so it is a new
+decision and it wins. Scope differs from what was cut: these instrument **only the accounts
+funnel**, never a trip, a route, a position or anything the speedometer touches.
+
+| Event | Fired when |
+|---|---|
+| `code_requested` | `/auth/send-code` accepted |
+| `code_verified` | `/auth/verify-code` returned any success `next` |
+| `membership_viewed` | Membership/renewal screen shown |
+| `payment_started` | Payment initiated with the gateway |
+| `payment_verified` | Backend confirmed the payment server-side |
+| `payment_failed` | Gateway or verification reported failure |
+| `login_device_conflict` | `DEVICE_CONFLICT` returned |
+| `force_login_used` | Force Login completed, prior device revoked |
+| `logout` | Session ended, either by the user or by revocation |
+
+**Constraints that are not negotiable, from `<hard_invariants>`:** never log an OTP value,
+never pair a provider message id with a phone number, never log a token or a payment
+secret. The event carries the name, a timestamp and the session/device it belongs to.
+**No phone number in an event body.**
+
+**⚠ THE ONBOARDING COPY NOW CONTRADICTS THIS AND IS FLAGGED, NOT SILENTLY EDITED.**
+`permission_rationale_screen.dart:179-184` tells the user, in the shipped app: *"There is no
+account, no analytics and no server."* All three clauses become false with this work. The
+copy has to change and **the change is Saam's to approve** — it is a promise made to users,
+not a wording preference. The test at `test/onboarding_test.dart:110,145` asserts only
+`find.textContaining('WHERE IT GOES')`, so the body can be rewritten without breaking the
+suite. Nothing is edited until he says so.
 
 ---
 

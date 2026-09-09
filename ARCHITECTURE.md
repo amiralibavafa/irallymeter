@@ -368,3 +368,109 @@ checked by name and presence only:
 against the live services in this engagement, and per `SPEC.md` §4.5 they will be
 reported as UNVERIFIED rather than claimed working.** Everything can still be built and
 tested against mocks at the HTTP boundary (`SPEC.md` §7).
+
+---
+
+## 11. Design-token inventory (added 2026-09-08 for the accounts work)
+
+The brief requires the login and payment screens to be visually indistinguishable from the
+existing app. This is what there is to match. **Read the headline finding first, because it
+changes how the screens get built.**
+
+### 11.0 Headline: the theme styles TYPE and COLOUR only. It styles no components.
+
+`AppTheme.build()` sets `scaffoldBackgroundColor`, `colorScheme`, `dividerColor`,
+`textTheme`, `iconTheme`, `appBarTheme` and one `ThemeExtension`. It defines **no
+`FilledButtonTheme`, no `OutlinedButtonTheme`, no `TextButtonTheme`, and no
+`InputDecorationTheme`.** Verified by reading the whole file, not by grep.
+
+Consequences, both of which are the actual instruction for the new screens:
+
+1. **Buttons are styled per call site.** There is exactly one full-width CTA in the app and
+   the new screens must copy it verbatim rather than invent one (§11.4).
+2. **There is no input style to inherit.** The three existing `TextField`s use bare
+   `InputDecoration(labelText: …)` and therefore render in stock Material dark. A phone-number
+   field and an OTP field styled that way will look like stock Flutter, not like this app, so
+   the input style has to be authored — it is the one place the new work genuinely adds a
+   token instead of reusing one. Author it once, next to the screens, and do not touch
+   `app_theme.dart`.
+
+### 11.1 Colour — `lib/core/theme/app_colors.dart`, 16 `static const Color`
+
+| Group | Tokens |
+|---|---|
+| Ground | `black`, `base`, `surface`, `surfaceRaised`, `divider` |
+| Type | `textPrimary`, `textSecondary`, `textDim` |
+| Status | `ok`, `warn`, `danger`, `accent`, `info` |
+| Night mode | `nightTextPrimary`, `nightTextSecondary`, `nightAccent` |
+
+Day/night is a **whole second `ThemeData`**, not a colour swap: `AppTheme.build(DisplayMode)`
+picks `primary` / `secondary` / `accent` from the night triplet when `night` is true.
+Widgets read the resolved values through `InstrumentColors.of(context)` rather than touching
+`AppColors` directly, so **new screens must do the same or they will not dim at night.**
+
+### 11.2 Type — `_textTheme()` at `app_theme.dart:65`
+
+Platform default font. No custom family, nothing to load.
+
+| Role | Size / weight | Intended use |
+|---|---|---|
+| `displayLarge` | 180 w700 | the giant speed readout |
+| `displayMedium` | 120 w700 | |
+| `displaySmall` | 72 w700 | |
+| `headlineMedium` | 48 w600 | |
+| `titleLarge` | 22 w600 | screen and dialog titles |
+| `bodyLarge` | 18 | primary body copy |
+| `bodyMedium` | 15 | secondary copy, `textSecondary` |
+| `labelLarge` | 13 w600, `letterSpacing: 1.5` | the all-caps label style |
+
+The four `digital()` styles carry `height: 1.0`, `letterSpacing: -1` and
+`FontFeature.tabularFigures()`. **`AppTheme.tabularFigures` is public on purpose** — its
+doc comment records that five live readouts built their own `TextStyle` and lost tabular
+figures by accident. A **countdown or resend timer on the OTP screen is exactly that class
+of widget** and must carry `fontFeatures: AppTheme.tabularFigures`, or the digits will jitter.
+
+Nothing on the login path needs anything above `titleLarge`. The display sizes are the
+instrument cluster and borrowing them would make an auth screen look like a speedometer.
+
+### 11.3 Spacing — there is no scale, and inventing one is out of scope
+
+Measured across the onboarding screens, the closest precedent to a login flow:
+`SizedBox(height: …)` at **5, 6, 12, 14 (×2), 22, 24**, and `EdgeInsets.all(14)`.
+Not a system, and not consistent enough to reverse-engineer one from.
+
+**Rule for the new screens: 24 between sections, 12 under a CTA, 14 inside a card.** That is
+the onboarding rhythm, copied. Do not add a spacing-token file — rule 2 of `CLAUDE.md`, and
+the app does not have one to be consistent with.
+
+### 11.4 The one CTA precedent — `permission_rationale_screen.dart:187-207`
+
+Copy this exactly. It is the only full-width primary button in the app.
+
+```dart
+SizedBox(
+  width: double.infinity,
+  height: 56,
+  child: FilledButton(
+    style: FilledButton.styleFrom(
+      backgroundColor: AppColors.accent,
+      foregroundColor: AppColors.black,
+      disabledBackgroundColor: AppColors.surfaceRaised,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+    child: Text('CONTINUE', style: TextStyle(
+      fontSize: 17, fontWeight: FontWeight.w800, letterSpacing: 1.2)),
+  ),
+)
+```
+
+Height **56**, radius **10**, label **ALL CAPS, 17 w800, letterSpacing 1.2**. Note the
+busy state is `_busy ? 'ASKING…' : 'CONTINUE'` with `onPressed: null` — the button changes
+its own label rather than showing a spinner. **`SENDING…` / `VERIFYING…` / `PAYING…` follow
+that pattern**, which matters because every one of those screens waits on a network call.
+
+### 11.5 Widget census across `lib/`
+
+`OutlinedButton` ×6 · `TextButton` ×4 · `TextField` ×3 · `InputDecoration` ×3 ·
+`FilledButton` ×2. Dialog actions are `TextButton` with all-caps labels
+(`CANCEL`, at `settings_screen.dart:215`). Match that in any dialog the new flow adds.

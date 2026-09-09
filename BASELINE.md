@@ -98,3 +98,9 @@ flutter pub get
 flutter analyze                    # expect 2 issues
 flutter test --reporter expanded   # expect +115 ~1, all passed
 ```
+
+---
+
+**2026-09-08 pointer, added without altering anything above.** The SA-V4 accounts/auth/
+payment work keeps its own live re-run gate in `BASELINE-SA-V4.md` (433 pass / 1 skip /
+0 fail, analyze at 2). This file stays frozen at the 2026-08-03 capture on purpose.

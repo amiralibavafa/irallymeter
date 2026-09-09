@@ -1,334 +1,237 @@
 # SPEC.md — Accounts, SMS OTP, One-Device Security, Subscription and Payment
 
 **This is the source of truth for acceptance of the ACCOUNT/PAYMENT work only.**
+Recorded from the engagement brief of **2026-09-08**. Section numbering added for
+citation; the wording is the author's.
 
-> ⚠ **Two SPEC files exist in this repo and they cover different things.**
-> `docs/SPEC-v2.md` is the *rally measurement* specification: GPS, speed, distance,
-> tunnels, compass. It is unchanged and still governs everything under
-> `lib/features/{gps,distance,trip,dashboard}`.
-> **This file governs only the new account, authentication, subscription and payment
-> layer.** Where they appear to conflict, `docs/SPEC-v2.md` wins on measurement and
-> this file wins on accounts. Neither may weaken the other.
+> ⚠ **Two SPEC files govern different things.** `docs/SPEC-v2.md` is the *rally
+> measurement* specification: GPS, speed, distance, tunnels, compass. It is unchanged and
+> still governs everything under `lib/features/{gps,distance,trip,dashboard}`. **This file
+> governs only the new account, authentication, subscription and payment layer.** Where
+> they appear to conflict, `docs/SPEC-v2.md` wins on measurement and this file wins on
+> accounts. Neither may weaken the other.
 
-Recorded verbatim from the engagement brief on 2026-08-30. Section numbering added
-for citation; wording is the author's.
+> The 2026-08-30 brief is archived verbatim at **`SPEC-2026-08-30.md`** and is no longer
+> acceptance criteria. It is kept because decisions were taken against it.
+
+---
+
+## §0 What changed from the 2026-08-30 brief
+
+| # | Change | Consequence |
+|---|---|---|
+| 1 | **The named SMS provider is OUT.** Replaced by a research phase with an approval gate. | Nothing may be built against a provider until Saam approves the choice. See §3. |
+| 2 | **A `<preservation_contract>` was added** and is called *"the highest-priority constraint in the entire task."* | §2. Mechanically enforced by `BASELINE-SA-V4.md`. |
+| 3 | **Analytics is back** — 9 named events. | Reverses the 8-30 "analytics is CUT". Recorded, not erased, in `INTERFACES.md` §3. |
+| 4 | **Routes renamed** `send-otp`→`send-code`, `verify-otp`→`verify-code`. | `INTERFACES.md` reconciled 2026-09-08. |
+| 5 | **New state enums the UI branches on.** | §6.2. `NO_SUBSCRIPTION` became `NO_ACCOUNT`. |
+| 6 | **Phase 0 now also requires a design-token inventory.** | Delivered as `ARCHITECTURE.md` §11. |
+| 7 | **The SMS provider must sit behind an abstraction** swapped by env var only. | §5.7. No provider name in business logic. |
 
 ---
 
 ## §1 Task
 
 iRallyMeter — implement the complete phone-auth, SMS OTP, one-device security,
-subscription, and ZarinPal payment backend + client integration for an EXISTING
-hybrid mobile app (Flutter/Dart + native Android/Kotlin + native iOS/Swift).
-Preserve the existing offline rally application entirely.
+subscription and payment layer, as a **gate in front of the existing app**, without
+modifying the rally computer.
+
+App → HTTPS → Backend API → Neon Postgres. The Flutter app is a client of an HTTP API and
+nothing else.
 
 ---
 
-## §2 Phase 0 — Recon (no code, read-only)
+## §2 The preservation contract — the highest-priority constraint in the entire task
 
-1. Run `repomix` at repo root to pack the project, then produce an architecture scan:
-   - Module map (one sentence per folder/file)
-   - Dependency graph
-   - Does a backend/API already exist? Which runtime/framework?
-   - Existing Flutter auth/payment/HTTP architecture
-   - Existing native Kotlin/Swift integrations and platform channels
-   - Existing env/config files, existing Neon configuration, existing dependencies
-   - What is well-designed and must NOT be touched
-2. Write findings to `ARCHITECTURE.md`.
-3. Save this entire spec to `SPEC.md` — it is the source of truth for acceptance.
+> *"NEVER modify: GPS logic, speedometer, trip meters, odometer, compass, offline
+> navigation, existing Kotlin integrations, existing Swift integrations, existing Flutter
+> rally logic, existing tests, or any currently-working file."*
+>
+> *"If a previously passing test breaks, STOP and revert — do not 'fix' the rally code."*
 
-**CRITICAL:** Do NOT assume this is a Flutter-only project. Do NOT assume the repo is
-empty. Do NOT create duplicate routes/services where equivalents already exist.
-Why: rewriting working native integrations is the highest-cost failure mode here.
+Saam, twice, in his own words:
 
----
+> *"the app wont be and cant be touched as the team approved it and like where its at so we
+> wont touch that at all, we are only creating that gate i mentioned"*
 
-## §3 Phase 1 — Plan
+**The mechanical test of this contract is `BASELINE-SA-V4.md`: 433 pass / 1 skip / 0 fail,
+`flutter analyze` at exactly 2 pre-existing issues.** Re-run after every phase. If either
+number moves, stop and revert. The 1 skip stays skipped at full strength.
 
-Enter plan mode. `/effort high`. Use context7 for Infobip 2FA, ZarinPal, Neon
-serverless Postgres, Prisma, JWT, and `flutter_secure_storage` docs — do not code
-against remembered APIs.
-
-Use the `api-designer` subagent and the `backend-architect` subagent to produce the
-plan. Use Superpowers' brainstorming + writing-plans skills to refine the spec
-before any implementation.
-
-Deliverables of this phase:
-- Written plan (Ctrl+G opens it in an external editor for review)
-- `INTERFACES.md` at repo root: the exact contracts between backend, Flutter, and
-  native layers (route shapes, request/response JSON, error/state enums such as
-  `DEVICE_CONFLICT` / `SUBSCRIPTION_EXPIRED` / `OTP_INVALID`, token lifetimes).
-  **RULE: any later change to anything in `INTERFACES.md` STOPS and flags for
-  sign-off before proceeding.**
-- `CLAUDE.md` rules block (keep under 65 lines):
-  1. THINK BEFORE CODING — state assumptions; if multiple readings exist, present
-     them; if unclear, stop and ask.
-  2. SIMPLICITY FIRST — minimum code that satisfies `SPEC.md`. No features beyond it.
-  3. SURGICAL CHANGES — touch only what the task requires; do not refactor adjacent
-     rally/GPS code; match existing style.
-  4. GOAL-DRIVEN — define success criteria before coding; verify before stopping.
-  5. Compaction rules — always preserve: schema state, migration status,
-     `INTERFACES.md`, env var list, failing tests, native platform-channel decisions.
+**The gate goes in at `lib/main.dart:97`**, above `IRallyMeterApp`, which is one line and
+leaves `app.dart` and `app_router.dart` untouched. This also means the GPS engine cannot
+start behind the login screen, because the chain at `app.dart:29` never runs until the gate
+passes. Both construction sites are enumerated: `main.dart:97` and
+`test/onboarding_test.dart:225` (the unit test builds the widget directly and so bypasses
+the gate by design).
 
 ---
 
-## §4 Hard invariants (non-negotiable; violating any one is a build failure)
+## §3 Phase 1 — SMS provider research, WITH AN APPROVAL GATE
 
-**§4.1 CRITICAL** — Flutter/native MUST NEVER connect to Neon PostgreSQL. Only the
-backend holds DB credentials. Architecture: **App → HTTPS → Backend API → Neon Postgres.**
+Use the `researcher` subagent. **3+ independent sources per claim.**
 
-**§4.2 CRITICAL** — The backend is the sole authority for: OTP verification, payment
-verification, subscription activation/extension, device authorization.
-**NEVER trust a client claim that a payment succeeded.**
+Evaluate SMS providers on:
+1. Real deliverability to Iranian **+98** numbers across **MCI (Hamrah-e Aval), Irancell,
+   Rightel**.
+2. **Sanctions and onboarding reality** — can this account actually be opened and paid for?
+3. **Does the provider generate AND verify the PIN server-side, or does it only send a
+   message we compose?** This decides whether an `otp_codes` table is needed at all.
+4. **Template / pattern pre-approval** — is it required, and what is the lead time?
 
-**§4.3 CRITICAL** — `expires_at` (server clock) is authoritative for subscriptions.
-NEVER decrement a counter on a schedule. NEVER trust the device clock.
-Validity = `current_server_time < expires_at`. The cleanup job keeps status rows
-consistent but is **NOT** the authority.
+Output: **`SMS_PROVIDER_DECISION.md`**.
 
-**§4.4 CRITICAL** — GPS, speedometer, trip meters, odometer, compass, rally
-calculations, and offline maps MUST keep working with zero connectivity and MUST NOT
-gain any API dependency. Do not move any of it server-side.
+> *"Do not present a provider as confirmed-working on the basis of marketing copy. Mark
+> unverified claims as unverified. **I will approve the choice before you build against
+> it.**"*
 
-**§4.5** — NEVER hardcode or invent credentials. Infobip and ZarinPal values live in
-env vars only: `INFOBIP_API_KEY`, `INFOBIP_BASE_URL`, `INFOBIP_2FA_APPLICATION_ID`,
-`INFOBIP_2FA_MESSAGE_ID`, `ZARINPAL_MERCHANT_ID`, `ZARINPAL_CALLBACK_URL`,
-`ZARINPAL_SANDBOX`, `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`.
-Ship `.env.example` with names only. Never commit `.env`. Never fabricate a successful
-SMS or payment response, and never report an integration as "working" untested.
+**This is a hard stop.** Phases 2-6 do not start until that approval lands.
 
-**§4.6** — NEVER log OTP values, PIN IDs paired with phone numbers, tokens, or payment
-secrets.
+---
 
-**§4.7** — ALWAYS use Infobip's own 2FA PIN generation and verification (application →
-message template → send PIN → receive `pinId` → verify PIN). Do NOT write a custom
-OTP generator.
+## §4 Hard invariants — non-negotiable; violating any one is a build failure
 
-**§4.8** — ALWAYS normalize Iranian numbers to E.164 (`09xxxxxxxxx` → `+989xxxxxxxxx`)
-BEFORE any lookup, insert, or send. Phone is UNIQUE. Why: format drift creates
-duplicate accounts.
+Recorded verbatim.
 
-**§4.9** — Device identity = a persistent random installation UUID in secure storage.
-**NEVER IMEI. NEVER IP-as-identity** (IP may be logged for audit only).
+- **CRITICAL** — The mobile app MUST NEVER connect to PostgreSQL. App → HTTPS → Backend API
+  → Neon Postgres. Only the backend holds `DATABASE_URL`.
+- **CRITICAL** — The backend is the sole authority for OTP verification, payment
+  verification, subscription activation, and device authorization. **NEVER trust a client
+  claim that a payment succeeded.**
+- **CRITICAL** — Subscription validity is `NOW() < expires_at` on **SERVER** time. NEVER
+  decrement a day counter on a schedule. NEVER trust the device clock.
+- **CRITICAL** — The rally computer must run with **zero connectivity** and must gain **NO
+  new API dependency**. The speedometer never awaits a network call.
+- **NEVER hardcode credentials.** Everything through env vars. Ship `.env.example` with
+  names + TODO comments only, never values. Never commit `.env`.
+- **NEVER fabricate** a successful SMS send or payment response. Never report an integration
+  as working unless it was actually exercised.
+- **NEVER log** OTP values, provider message IDs paired with phone numbers, tokens, or
+  payment secrets.
+- **ALWAYS normalize** Iranian numbers to E.164 (`09xxxxxxxxx` → `+989xxxxxxxxx`) BEFORE any
+  lookup, insert, or send. `phone` is UNIQUE.
+- **Device identity** = a persistent random installation UUID in secure storage. **NEVER
+  IMEI. NEVER IP-as-identity** (IP may be logged for audit only).
+- Mock the SMS provider and ZarinPal **at the HTTP boundary. Never hit live gateways.**
 
 ---
 
 ## §5 Phase 2 — Backend
 
-Use the `backend-developer` subagent and the `postgres-pro` subagent. Use context7
-throughout.
+### §5.1 Database
 
-### §5.1 Database (Neon project `lingering-shape-75754502`, org Amirali)
+Neon serverless Postgres, Prisma 7.10.0 (both `prisma` and `@prisma/client` pinned
+**exactly**, because Prisma's `latest` dist-tag points at a release candidate).
 
-- Connect via `DATABASE_URL` env var, pooled connection, TLS required.
-- Use a real migration system — `/prisma-database-setup` and `/prisma-cli` for schema
-  + migration workflow, `/prisma-client-api` for the query layer, `/prisma-postgres`
-  for Neon/Postgres-specific connection and pooling patterns. Apply the Postgres
-  indexing, constraint, and transaction guidance in
-  `/supabase-postgres-best-practices` (**vendor-neutral Postgres parts only — this
-  project is Neon, not Supabase**).
-- Tables:
-  - `users` (id, phone UNIQUE, created_at, updated_at)
-  - `devices` (id, user_id, device_id, platform, device_name, app_version, created_at,
-    last_seen, revoked_at)
-  - `subscriptions` (id, user_id, plan, price, started_at, expires_at, status,
-    payment_id, created_at, updated_at)
-  - `payments` (id, user_id, subscription_id, plan, amount, currency_unit, gateway,
-    authority, reference_id, status, created_at, updated_at)
-  - `refresh_tokens` (**hashed only**)
-  - `plans` (configurable — seed exactly ONE active plan: monthly, 400,000 Toman, 30 days)
-- **Collect NOTHING beyond phone**: no name, email, address, gender, DOB, referral source.
-- **Idempotency:** UNIQUE constraint on `(gateway, authority)` and on `reference_id` so
-  a replayed callback cannot activate a second subscription.
+Models: `User`, `Device`, `Plan`, `Subscription`, `Payment`, `RefreshToken`, plus a
+**session table for the OTP handshake** whose exact shape is decided by §3 — if the chosen
+provider verifies the PIN itself, it stores only a provider handle; if it does not, it
+stores a **hashed** code with a TTL and an attempt counter.
 
-### §5.2 Routes (adapt to existing structure if equivalents exist)
+Three partial unique indexes are hand-written SQL, because Prisma cannot express them:
 
+```sql
+CREATE UNIQUE INDEX "devices_one_active_per_user"
+  ON "devices" ("user_id") WHERE "revoked_at" IS NULL;
+CREATE UNIQUE INDEX "subscriptions_one_active_per_user"
+  ON "subscriptions" ("user_id") WHERE "status" = 'ACTIVE';
+CREATE UNIQUE INDEX "otp_sessions_one_live_per_phone"
+  ON "otp_sessions" ("phone") WHERE "consumed_at" IS NULL;
 ```
-POST /auth/send-otp
-POST /auth/verify-otp
-POST /auth/login
-POST /auth/force-login
-POST /auth/logout
-POST /auth/refresh
-GET  /subscription/status
-POST /payment/create
-GET|POST /payment/callback
-```
+
+The first is the **database-level enforcement of one-device**, proven with a control on
+both sides: a second active device is refused; after a Force Login revokes the first, the
+second is accepted; the revoked row is retained for audit.
+
+### §5.2 Routes
+
+`POST /auth/send-code` · `POST /auth/verify-code` · Force Login · refresh · logout ·
+membership · payment start · `GET|POST /payment/callback` · `POST /analytics/event`.
+Full request/response contracts live in **`INTERFACES.md`**, which is the wire contract and
+wins on shapes.
 
 ### §5.3 Auth logic
 
-- Passwordless. Phone → Infobip PIN → verify → branch:
-  no account → signup+payment flow; account exists → device check → subscription check.
-- **ONE active device per account.** A second device on NORMAL login is REJECTED with an
-  explicit `DEVICE_CONFLICT` state — it must **NOT** silently replace the existing device.
-- **Force Login:** requires a fresh successful OTP, then revokes prior device + sessions,
-  registers the new device, issues a new session. This is the deliberate transfer path.
-- **Logout:** revoke refresh token + device session server-side, then clear client state.
-- Short-lived access token + long-lived refresh token, **refresh rotation**, refresh
-  tokens stored **HASHED**. Silent refresh so the user never re-OTPs on app open.
+Refresh-token **rotation with reuse detection**. An Ed25519-signed offline entitlement blob
+lets the app know it is still entitled without a network call, which is what keeps the
+rally computer working at zero connectivity.
 
 ### §5.4 Subscription logic
 
-- **Renewal while active EXTENDS from the existing `expires_at`, not from now.**
-  Test case: expiry Sep 10, purchase Sep 5 → new expiry **Oct 10** (never Oct 5).
-- Renewal while expired starts from now.
-- Every authenticated request validates: account exists → session valid → device
-  authorized → subscription not expired. Expired returns an explicit
-  `SUBSCRIPTION_EXPIRED` state, **not a generic 401**.
-- Add a scheduled job to mark lapsed rows expired, clearly documented as
-  **non-authoritative**.
+`NOW() < expires_at`, server time, every time. Automatic logout on expiry. **A user with a
+live subscription who logs in again does not pay again** (Saam, verbatim: *"if they have a
+subscriptions and they tryna log in again, they dont need to pay"*).
 
-### §5.5 Rate limiting / abuse (our own layer, on top of Infobip's)
+### §5.5 One device per phone number
 
-Per-phone and per-IP limits on `send-otp` and `verify-otp`, plus login attempt limiting.
-Respect the configured Infobip envelope: **PIN TTL 15 min, 10 attempts, 1 verify /
-3 seconds, 100 sends/day app-wide, 10 sends/day per phone.**
+Saam, verbatim: *"Every user with the same phone number can only login with one device and
+if they try to login with another device while main device is logged in and that shouldnt be
+approved/allowed."* Force Login is the escape hatch: it revokes the prior device and every
+refresh token issued to it.
 
-### §5.6 Payments (ZarinPal)
+### §5.6 Payments — ZarinPal
 
-Flow: client requests → backend creates the payment row (status `pending`) and the
-gateway request → gateway → callback → **backend VERIFIES with ZarinPal** → backend
-activates/extends the subscription → client is told the confirmed state.
+Classic REST `pg/v4`. **Amounts default to RIAL**; `currency: "IRT"` opts into Toman.
+Code `100` = verified now, `101` = already verified. The callback's `Status` is never
+trusted; the backend re-verifies with ZarinPal.
 
-**Verify the current ZarinPal amount unit (Rial vs Toman) from live docs via context7
-before writing any amount conversion — do not assume.** Store the unit explicitly in
-the `payments` row.
+**ZarinPal credentials ship as clearly commented TODO placeholders.** Everything else in
+the payment path is fully implemented.
 
-Apply `/webhook-handler-patterns` for retry, replay, and idempotency handling of the
-callback, and mirror the idempotency-key + event-dedupe structure documented in
-`/stripe-webhooks` as the reference pattern (**ZarinPal is the gateway here, Stripe is
-only the pattern source**).
+### §5.7 SMS provider abstraction
+
+```
+sendVerification(phone) → handle
+verifyCode(handle, code) → result
+```
+
+Swapped **only** by `SMS_PROVIDER` / `SMS_API_KEY` / `SMS_BASE_URL` / `SMS_SENDER_ID`.
+**No provider name appears anywhere in business logic.** A fake adapter exists for tests.
 
 ---
 
 ## §6 Phase 3 — Client
 
-Use the `mobile-developer` subagent; use the `swift-expert` subagent for any iOS
-platform-channel work. Use context7 for the ZarinPal Flutter package — **INSPECT the
-package's current API surface before wiring it; do not code from memory.**
+### §6.1 UI quality
 
-- **Secure token storage:** Keychain on iOS, EncryptedSharedPreferences/Keystore on
-  Android (via `flutter_secure_storage` or the existing native equivalent already in
-  the repo). **NEVER SharedPreferences/UserDefaults plaintext** for tokens or entitlement.
-- Persistent installation UUID generated once, stored in the same secure store.
-- **Offline entitlement:** cache a SIGNED, server-issued entitlement blob (server
-  signature + `expires_at` + `issued_at` + `device_id`) so the rally app runs offline.
-  Reconcile on every successful connectivity window. Enforce a **bounded offline grace
-  period** — after N days without reconciliation the entitlement stops being accepted.
-  **Tampering with local storage must not yield indefinite access.**
-  Why: this is the one place where offline-first and revocation are in tension —
-  design it explicitly, don't let it emerge.
-- Screens: phone entry → OTP → (membership + payment if new/expired) → app.
-  Login screen carries: *Not a member? Sign up* · *Force Login (!)* with an info tooltip
-  explaining lost/damaged/inaccessible previous phone or forgotten logout.
-  `DEVICE_CONFLICT` must render a clear "already active on another device" state.
+The auth, membership and payment screens must be indistinguishable from the existing app.
+The token inventory is `ARCHITECTURE.md` §11. Headline: **the theme styles type and colour
+only and defines no component themes**, so the CTA is copied verbatim from
+`permission_rationale_screen.dart:187-207` and the input style has to be authored once.
 
-### §6.1 UI quality gates for the auth/membership screens
+### §6.2 States the UI branches on
 
-- `/design-interview` **BEFORE** building the screens (lock states, copy, error surfaces).
-- `/signup-flow-cro` on the phone→OTP→membership funnel and `/paywall-upgrade-cro` on the
-  membership/renewal screen — reduce friction **without adding fields**.
-- `/design-review` after building (8-dimension score + AI-slop checklist + top 3 fixes).
-- `/site-qa` on the ZarinPal web return/callback page (the one genuine web surface) —
-  responsiveness, RTL/Persian rendering, and failure-state handling.
-- `/analytics-tracking` to instrument ONLY this funnel: `otp_requested`, `otp_verified`,
-  `membership_viewed`, `payment_started`, `payment_verified`, `login_device_conflict`,
-  `force_login_used`, `logout`. **Events only — build NO analytics dashboard (§23 forbids it).**
+`OTP_SENT` · `OTP_INVALID` · `OTP_EXPIRED` · `NO_ACCOUNT` · `DEVICE_CONFLICT` ·
+`SUBSCRIPTION_EXPIRED` · `PAYMENT_FAILED` · `SESSION_REVOKED`.
+
+The client switches on the code and **never parses a message string**.
 
 ---
 
 ## §7 Phase 4 — Tests
 
-Use the `qa-expert` subagent. Superpowers' test-driven-development skill: **write the
-failing test first for every item below.**
-
-Must cover:
-
-1. new-user signup
-2. OTP verify success / failure / expiry
-3. existing-user login
-4. duplicate-phone normalization (`09…` and `+989…` resolve to ONE account)
-5. device registration
-6. **SECOND-DEVICE REJECTION on normal login**
-7. force login revokes prior device
-8. logout revokes session
-9. refresh rotation
-10. refresh reuse detection
-11. expired subscription blocks access
-12. active subscription allows access
-13. **RENEWAL EXTENDS from existing expiry**
-14. payment creation
-15. verified payment activates subscription
-16. failed payment activates nothing
-17. **DUPLICATE CALLBACK activates exactly one subscription**
-18. unauthorized requests rejected
-19. expired subscription cannot reach an authenticated session without a verified payment
-20. tampered local entitlement is rejected on reconciliation
-
-**Mock Infobip and ZarinPal at the HTTP boundary. Never hit live gateways in tests.**
+Mock the SMS provider and ZarinPal **at the HTTP boundary**. Never hit a live gateway.
+New tests are additive; **no existing test is edited**.
 
 ---
 
 ## §8 Phase 5 — Review
 
-Run `/code-review` on the full diff (4 parallel auditors, ≥80 confidence filter).
-Then the cross-model adversarial loop — this build hits every high-risk trigger
-(auth, payments, migrations, session lifecycle):
-
-1. Write `AGENTS.md` at repo root before handing anything to Codex — Codex never reads
-   `CLAUDE.md`. ~100 lines: stack, conventions, git rules, and an explicit ownership
-   boundary: *"Claude Code owns `SPEC.md`, `INTERFACES.md`, `ARCHITECTURE.md` and memory;
-   Codex may read them but never writes them."*
-   Set `~/.codex/config.toml` → `model = "gpt-5.5"`, `model_reasoning_effort = "high"`
-   (`codex exec` defaults to reasoning effort NONE — check the header line it prints).
-2. `/codex:review --background`
-3. Fix everything Codex flags.
-4. `/codex:adversarial-review` — challenge the payment callback idempotency, the
-   refresh-token rotation and reuse-detection design, the one-device revocation race
-   (force login racing an in-flight refresh from the old device), and the offline
-   entitlement grace window.
-5. Fix remaining issues.
-6. **Ship only when adversarial review returns nothing critical.**
-
-Also: use the `security-auditor` subagent for a pass over token handling, secret
-placement, parameterized queries, and log redaction.
+Against §2 first, then the hard invariants, then the wire contract.
 
 ---
 
-## §9 Parallelism
+## §9 Open, and owned by Saam
 
-Use git worktrees (`claude -w <branch>`) with **STRICT module ownership** so parallel
-agents cannot create logic conflicts:
-
-- agent **A** owns `backend/` (DB, auth, subscription, payments)
-- agent **B** owns the Flutter client + native platform channels
-- agent **C** owns `tests/` and fixtures
-
-Every agent reads `INTERFACES.md` **FIRST**. Any interface change stops for sign-off.
-**Tests are the merge judge — only branches with green tests merge.**
-**CAP: 3 max concurrent subagents** (subagent queue pattern, SOP §11.6) — this is the
-subagent limit, NOT the 25-concurrency figure used for native batch scraping.
-
----
-
-## §10 Context management
-
-Run `/context` before starting to check the baseline. Run `/compact` every ~30 minutes
-focused on: current phase, schema + migration state, `INTERFACES.md` contracts, env
-var list, failing tests, unresolved native platform-channel decisions.
-Use `/btw` for side questions so they cost nothing against this thread.
-After each phase, append what broke and the rule learned to `tasks/lessons.md`;
-read `tasks/lessons.md` before starting each new phase.
-
----
-
-## §11 Output format
-
-Final engineering report (concise, factual, **no claims of untested success**):
-existing architecture discovered · backend architecture used · Neon connection
-status · schema created · migration status · Infobip integration status · ZarinPal
-integration status · auth flow · device security flow · subscription system ·
-offline entitlement behavior · env vars required · files created/modified · tests
-written and passing · remaining manual credentials/config needed.
-
-**State explicitly which integrations are UNVERIFIED pending real credentials.**
+1. **Approve the SMS provider** (§3). Blocks phases 2-6.
+2. **Who owns the SMS account** — an Iranian entity or not? This reorders the whole provider
+   matrix, because domestic providers generally require Iranian company registration and a
+   Shetab card.
+3. **The onboarding copy.** `permission_rationale_screen.dart:179-184` promises *"no
+   account, no analytics and no server."* This work makes all three false. Flagged, not
+   edited.
+4. **Neon credentials.** Only Saam has them; `.env` fails loudly by design.
+5. **Where `irallymeter-api` lives.** It has no git remote.
+6. **The Gradle throw at `android/app/build.gradle:83-87`** blocks Amirali from building the
+   app at all. Proven by control. It is my bug from the prior engagement and it is not
+   touched without permission.
