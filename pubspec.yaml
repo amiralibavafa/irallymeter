@@ -45,6 +45,23 @@ dependencies:
   share_plus: ^10.1.3
   file_picker: ^8.1.6
 
+  # ── The account gate (SPEC.md §6). Added in [SA-V4 phase-3]. ──────────────
+  # These three are the ONLY runtime dependencies the gate adds, and none of
+  # them is reachable from the rally computer. GPS, distance, the trip meters
+  # and the compass keep running with the network down, which is the point of
+  # SPEC.md §4: "the speedometer never awaits a network call".
+  #
+  # `http` was already resolved transitively, so declaring it costs no package.
+  http: ^1.2.2
+  # The installation UUID and the refresh token live HERE, never in Hive. Hive
+  # is unencrypted, so a token in it is readable by anything that can read the
+  # app's files.
+  flutter_secure_storage: ^10.3.1
+  # Ed25519 verification of the offline entitlement blob (INTERFACES.md §5),
+  # and nothing else. Pure Dart, so it verifies with no network and no
+  # platform channel — the valley case this whole blob exists for.
+  cryptography: ^2.9.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
