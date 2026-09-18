@@ -151,6 +151,18 @@ class AccountApi {
 
   // ── subscription and payment ──────────────────────────────────────────────
 
+  /// `GET /plans`. Public pricing — no token, because the user who needs it does not
+  /// have one yet.
+  Future<List<Plan>> plans() async {
+    final Map<String, dynamic> body = await _get('/plans');
+    final Object? raw = body['plans'];
+    if (raw is! List) return const <Plan>[];
+    return raw
+        .map(Plan.fromJson)
+        .whereType<Plan>()
+        .toList(growable: false);
+  }
+
   /// `GET /membership`.
   ///
   /// ⚠ Not `/subscription/status`, and it returns only `{active, expiresAt}` —
@@ -165,21 +177,21 @@ class AccountApi {
 
   /// `POST /payment/start`.
   ///
-  /// ⚠⚠ **Requires a Bearer ACCESS token, and the users who need to pay do not
-  /// have one.** `verify-code` answers `PAYMENT_REQUIRED` with a bare `userId`,
-  /// nothing mints a token from it, and this route opens with `requireAuth`.
-  /// So every call from the state that needs payment is a 401. The method is
-  /// written and correct for the day that gap closes; it is not reachable from
-  /// the UI, and the membership screen says so rather than pretending. Traced
-  /// end to end in `DEVIATIONS.md` D-3, category 2.
+  /// [bearer] is a **payment token** for a user who is not signed in yet, or an
+  /// **access token** for a signed-in user renewing early. The route accepts both
+  /// and only this route does.
+  ///
+  /// (Until 2026-09-10 it accepted an access token only, which meant the users who
+  /// actually needed to pay — every new signup and every lapsed renewal — got a 401
+  /// on every attempt. Fixed backend-side; `DEVIATIONS.md` D-3 has the trace.)
   Future<PaymentStart> startPayment({
     required String planCode,
-    required String accessToken,
+    required String bearer,
   }) async {
     final Map<String, dynamic> body = await _post(
       '/payment/start',
       <String, dynamic>{'planCode': planCode},
-      bearer: accessToken,
+      bearer: bearer,
     );
     final Object? url = body['paymentUrl'];
     final Object? authority = body['authority'];
@@ -187,6 +199,24 @@ class AccountApi {
       throw _malformed('payment/start');
     }
     return PaymentStart(paymentUrl: url, authority: authority);
+  }
+
+  /// `POST /auth/claim-session` — turn a payment token into a session once the
+  /// subscription is actually live.
+  ///
+  /// ⚠ Answers `PAYMENT_REQUIRED` again if it is not. Holding the token is not proof
+  /// of payment; the server re-reads the subscription row, which is the only thing
+  /// that is proof.
+  Future<VerifyCodeResult> claimSession({
+    required String paymentToken,
+    required DeviceDescriptor device,
+    String? phone,
+  }) async {
+    final Map<String, dynamic> body = await _post(
+      '/auth/claim-session',
+      <String, dynamic>{'paymentToken': paymentToken, 'device': device.toJson()},
+    );
+    return _readVerify(body, phone: phone);
   }
 
   void close() => _client.close();
@@ -204,6 +234,9 @@ class AccountApi {
     return VerifyCodeResult(
       next: next,
       userId: body['userId'] is String ? body['userId'] as String : null,
+      paymentToken:
+          body['paymentToken'] is String ? body['paymentToken'] as String : null,
+      paymentTokenExpiresAt: _utc(body['paymentTokenExpiresAt']),
     );
   }
 

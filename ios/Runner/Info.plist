@@ -14,6 +14,23 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<!-- Payment return, INTERFACES.md §7. The backend 302s the browser to
+	     irallymeter://payment/callback after verifying with ZarinPal server-side.
+	     Without this key iOS has no idea the scheme belongs to us and the redirect
+	     dies silently in Safari. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.irallyclub.irallymeter.payment</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>irallymeter</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleName</key>
 	<string>irallymeter</string>
 	<key>CFBundlePackageType</key>

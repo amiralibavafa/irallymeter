@@ -266,6 +266,32 @@ class AccountRepository {
 
   Future<DeviceDescriptor> describeDevice() => _identity.describe();
 
+  /// Public pricing for the membership screen.
+  Future<List<Plan>> plans() => _api.plans();
+
+  /// Starts a payment. [bearer] is a payment token for a user who is not signed in
+  /// yet, or an access token for a signed-in user renewing early.
+  Future<PaymentStart> startPayment({
+    required String planCode,
+    required String bearer,
+  }) =>
+      _api.startPayment(planCode: planCode, bearer: bearer);
+
+  /// Turns a payment token into a session, once the server agrees the subscription is
+  /// live. Saves the session if one comes back.
+  Future<VerifyCodeResult> claimSession({
+    required String paymentToken,
+    required String phone,
+  }) async {
+    final VerifyCodeResult result = await _api.claimSession(
+      paymentToken: paymentToken,
+      device: await _identity.describe(),
+      phone: phone,
+    );
+    if (result.session != null) await saveSession(result.session!);
+    return result;
+  }
+
   Future<void> logout() async {
     final Session? current = await readSession();
     if (current != null) {

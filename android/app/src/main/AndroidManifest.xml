@@ -50,6 +50,24 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Payment return, INTERFACES.md §7. ZarinPal sends the browser to
+                 https://<api>/payment/callback; the backend verifies server-side
+                 and then 302s to irallymeter://payment/callback, which lands here.
+
+                 BROWSABLE is required or a browser will not follow the redirect.
+                 DEFAULT is required for an implicit VIEW intent to resolve at all.
+
+                 ⚠ Because this activity is launchMode="singleTop", the callback
+                 arrives in onNewIntent() on an ALREADY RUNNING app, NOT as a
+                 fresh onCreate. MainActivity handles both paths anyway, because
+                 a cold start is reachable if Android killed the app while the
+                 user was at the gateway. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="irallymeter" android:host="payment"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

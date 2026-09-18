@@ -111,7 +111,8 @@ authority and the blob is not consulted at all.
 ## D-3 — The backend and `INTERFACES.md` disagree on almost every shape
 
 **Found:** 2026-09-08, during Phase 3, while writing the client's force-login call.
-**Status: OPEN. Two decisions for Saam, and they are different kinds of decision.**
+**Status: category 2 CLOSED 2026-09-10 (built). Category 1 still OPEN — it is a document
+edit and a sign-off, not code.**
 
 ### The fact that settles which side wins
 
@@ -185,23 +186,70 @@ route behind it is never called. A green suite is not coverage of a path nobody 
 would experience it: *after paying, the user is left looking at a JSON body in a mobile
 browser, with no route back into the app.*
 
+### ✅ CATEGORY 2 IS FIXED — 2026-09-10
+
+Both items were defects in **our own** backend rather than disagreements with a third
+party, so they were built rather than left as questions.
+
+**The unreachable payment route.** `TokenService.issuePaymentToken` mints the
+payment-scoped token `INTERFACES.md` §3 always called `signupToken`: 30 minutes,
+`scp: "pay"`, bound to no device. `verify-code` and `force-login` now return it beside
+`userId`; `/payment/start` accepts **either** it or an access token, because a new user
+has only the former and a signed-in user renewing early has only the latter.
+
+A new **`POST /auth/claim-session`** exchanges that token for a session once the
+subscription is live. Without it a user could pay and still have no way in.
+
+⚠ Three things it deliberately does **not** do, each tested:
+- It does not treat the token as proof of payment. `claimSession` re-reads the
+  subscription row, so a token holder who never paid gets `PAYMENT_REQUIRED` back.
+- It does not bypass the one-device rule: it runs through the same `resolveFor` as OTP,
+  so a renewal with an old handset still registered gets `DEVICE_CONFLICT`.
+- It does not blur the two token types. An access token has no `scp` and is refused
+  where a payment token is expected; a payment token has no `did`/`fam` and cannot read
+  membership or log out.
+
+**The callback now 302s into `irallymeter://payment/callback`** instead of answering
+JSON — including on failure, so a failed verification cannot strand the user on an
+error page either. The native halves are new: an intent-filter plus `onNewIntent`
+handling in `MainActivity.kt`, and `CFBundleURLTypes` plus
+`application(_:open:options:)` in `AppDelegate.swift`. Neither touches GPS or rally code.
+
+**`GET /plans`** was added because the client had no way to learn a price at all, and a
+purchase screen that cannot name what it is selling is not finished.
+
+**And the reason nobody saw any of it:** `/payment/start` had no route test, and
+`tsconfig.json` never included `test/`, so the in-memory doubles were never checked
+against the interfaces they claim to implement. Both are fixed —
+`test/payment-routes.test.ts` drives the whole path over real HTTP, and
+`tsconfig.test.json` puts the tests in the typechecker's scope. Turning that on
+immediately reported four errors that had been invisible.
+
+⇒ **The transferable lesson, recorded because it will recur:** a green suite is not
+coverage of a path nobody exercises, and a check that cannot see the thing it is meant
+to check will pass forever. When a flow spans two routes, assert the **second** is
+callable with what the **first** actually hands back.
+
 ### What Phase 3 therefore delivers, and what it does not
 
 - **Delivered in full:** phone entry, OTP, `DEVICE_CONFLICT`, Force Login, refresh with
-  rotation, the launch gate, offline entitlement. That is seven of `SPEC.md` §6.2's eight
-  states and every one of them is reachable and testable today.
-- **Not delivered, deliberately:** the payment call itself, and §7's native deep-link
-  plumbing (Android intent-filter, iOS `Info.plist` + `AppDelegate`). Building a client
-  against a route it cannot authenticate to, or wiring a return path for a server that
-  never redirects, would be scaffolding for a flow that cannot complete. The membership
-  screen is built and states the block honestly instead of pretending.
-- `url_launcher` is committed and currently **unused**; it is kept because the payment
-  flow is deferred, not cancelled.
+  rotation, the launch gate, offline entitlement, **and since 2026-09-10 the payment
+  flow and the native deep link**. That is all eight of `SPEC.md` §6.2's states.
+- **Both native halves are built, not assumed** (2026-09-18): `flutter build apk --debug`
+  and `flutter build ios --debug --no-codesign` both succeed, and the scheme was read back
+  out of the **built** artifacts (`aapt2 dump xmltree` shows the `BROWSABLE` filter for
+  `irallymeter://payment`; `plutil -p` on the built `Runner.app` shows `CFBundleURLSchemes
+  = irallymeter`).
+- ⚠ **Still unverified on hardware:** no real browser on a real handset has followed the
+  redirect yet. "Chrome/Safari actually hand `irallymeter://` to the app" is a device check,
+  not a build check. It belongs on the road-test list next to the GPS OFF→ON item.
 
 ### How this closes
 
-1. Amend `INTERFACES.md` to describe the built backend (category 1), and
-2. decide the two backend items in category 2: mint a payment-scoped token for
-   `PAYMENT_REQUIRED`, and make the callback redirect into the deep link.
+1. **Category 1 — amend `INTERFACES.md` to describe the built backend.** A document
+   edit and a sign-off. Still open, still Saam's, and it blocks nothing.
+2. ~~Category 2~~ — **done 2026-09-10**, see above.
 
-Neither is Phase 3 work, and neither blocks anything above.
+Note that the amendment now has more to describe than it did: `/auth/claim-session`,
+`GET /plans`, and the `paymentToken` on `PAYMENT_REQUIRED` are all new since the table
+above was written.

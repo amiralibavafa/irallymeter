@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_theme.dart';
 import '../domain/api_error.dart';
+import '../domain/session.dart';
 import 'account_flow_controller.dart';
 import 'widgets/account_ui.dart';
 
@@ -30,6 +32,8 @@ class AccountFlowScreen extends ConsumerWidget {
         return const _ConflictView();
       case AccountStep.membership:
         return const _MembershipView();
+      case AccountStep.awaitingPayment:
+        return const _AwaitingPaymentView();
     }
   }
 }
@@ -73,8 +77,13 @@ String? _explain(AccountFlowState state) {
       // These are whole screens, not inline notices.
       return null;
     case ApiErrorCode.paymentFailed:
-    case ApiErrorCode.paymentNotVerified:
       return 'The payment was not completed.';
+    case ApiErrorCode.paymentNotVerified:
+      // Reached when the server still sees no live subscription. Deliberately not
+      // "payment failed": a gateway can confirm late, and telling someone their money
+      // vanished when it has not is worse than telling them to wait.
+      return 'We have not seen the payment confirmed yet. If you have just '
+          'paid, wait a moment and try again.';
     case ApiErrorCode.internal:
     case ApiErrorCode.unknown:
       return 'Something went wrong. Try again.';
@@ -368,33 +377,142 @@ class _MembershipView extends ConsumerWidget {
     final AccountFlowState state = ref.watch(accountFlowProvider);
     final AccountFlowController controller =
         ref.read(accountFlowProvider.notifier);
+    final Plan? plan = state.plans.isEmpty ? null : state.plans.first;
 
     return AccountScaffold(
       children: <Widget>[
         const AccountHeading(
           eyebrow: 'MEMBERSHIP',
           title: 'This number needs a subscription',
-          // The backend collapses "never subscribed" and "lapsed" into one
-          // answer on purpose, so the copy cannot claim to know which it is.
-          body: 'Your number is verified. A subscription is needed before the '
-              'rally computer unlocks on this phone.',
+          // The backend collapses "never subscribed" and "lapsed" into one answer on
+          // purpose, so the copy cannot claim to know which it is.
+          body: 'Your number is verified. A subscription unlocks the rally '
+              'computer on this phone.',
         ),
         const SizedBox(height: 24),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceRaised,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.divider),
+          ),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      plan?.name.toUpperCase() ?? 'SUBSCRIPTION',
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      // No price until GET /plans answers. Saying so beats inventing
+                      // one, and the gateway shows the amount again anyway.
+                      plan == null
+                          ? 'Amount shown on the payment page'
+                          : '${plan.formattedToman} Toman',
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        // A price is a number that must not jitter while it loads.
+                        fontFeatures: AppTheme.tabularFigures,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (plan != null)
+                Text(
+                  '${plan.days} DAYS',
+                  style: const TextStyle(
+                    color: AppColors.textDim,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.5,
+                    fontFeatures: AppTheme.tabularFigures,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        AccountCta(
+          label: 'PAY AND ACTIVATE',
+          busyLabel: 'PAYING…',
+          busy: state.busy,
+          onPressed: () => controller.startPayment(plan?.code ?? 'monthly'),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Payment opens in your browser and returns here when it is done.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              color: AppColors.textDim, fontSize: 13, height: 1.4),
+        ),
+        const SizedBox(height: 12),
+        AccountSecondaryAction(
+          label: 'BACK',
+          onPressed: state.busy ? null : controller.restart,
+        ),
+        _noticeFor(state),
+      ],
+    );
+  }
+}
 
-        // ⚠⚠ HONEST DEAD END, NOT A DISABLED BUTTON PRETENDING TO WORK.
-        //
-        // `DEVIATIONS.md` D-3 category 2: `/auth/verify-code` answers
-        // PAYMENT_REQUIRED with a bare `userId`, `/payment/start` requires a
-        // Bearer access token, and nothing mints one from that userId. So the
-        // payment call cannot be made from this state by anyone. Showing a
-        // PAY button here would be a button that always fails with a 401.
-        const AccountNotice(
-          icon: Icons.construction,
-          colour: AppColors.warn,
-          message: 'Payment is not available in this build yet. Please '
-              'contact support to activate your subscription.',
+// ── waiting for the gateway ──────────────────────────────────────────────────
+
+/// The user is at the bank. This screen exists because the return trip is not
+/// guaranteed to be the deep link.
+///
+/// ⚠ THE MANUAL BUTTON IS NOT A FALLBACK, IT IS A SECOND FIRST-CLASS PATH. A user can
+/// always come back through the task switcher instead of tapping the browser's return,
+/// and on that path no deep link ever fires. A flow that only worked when the link
+/// fired would strand someone who had genuinely paid. Both routes call exactly the same
+/// method.
+class _AwaitingPaymentView extends ConsumerWidget {
+  const _AwaitingPaymentView();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AccountFlowState state = ref.watch(accountFlowProvider);
+    final AccountFlowController controller =
+        ref.read(accountFlowProvider.notifier);
+
+    return AccountScaffold(
+      children: <Widget>[
+        const AccountHeading(
+          eyebrow: 'PAYMENT',
+          title: 'Finish in your browser',
+          body: 'When the payment is done you come straight back here. If you '
+              'return another way, tap the button below.',
         ),
         const SizedBox(height: 24),
+        const AccountNotice(
+          icon: Icons.verified_user_outlined,
+          colour: AppColors.info,
+          // Worth saying out loud: it is why a cancelled payment cannot be faked, and
+          // why the app is not simply believing the browser.
+          message: 'Your subscription is activated by our server after the '
+              'gateway confirms the payment, never by this app.',
+        ),
+        const SizedBox(height: 24),
+        AccountCta(
+          label: 'I HAVE PAID',
+          busyLabel: 'CHECKING…',
+          busy: state.busy,
+          onPressed: controller.checkPayment,
+        ),
+        const SizedBox(height: 12),
         AccountSecondaryAction(
           label: 'BACK',
           onPressed: state.busy ? null : controller.restart,

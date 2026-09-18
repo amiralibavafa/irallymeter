@@ -133,13 +133,28 @@ enum VerifyNext {
 
 @immutable
 class VerifyCodeResult {
-  const VerifyCodeResult({required this.next, this.session, this.userId});
+  const VerifyCodeResult({
+    required this.next,
+    this.session,
+    this.userId,
+    this.paymentToken,
+    this.paymentTokenExpiresAt,
+  });
 
   final VerifyNext next;
   final Session? session;
 
   /// Present only on [VerifyNext.paymentRequired].
   final String? userId;
+
+  /// The payment-scoped token — `INTERFACES.md` §3's `signupToken`.
+  ///
+  /// ⚠ **Not a session.** It authorises exactly two calls, `/payment/start` and
+  /// `/auth/claim-session`, and nothing else: it cannot refresh, cannot log out, cannot
+  /// read membership, and is bound to no device. Held in MEMORY only, like `otpToken`.
+  final String? paymentToken;
+
+  final DateTime? paymentTokenExpiresAt;
 }
 
 @immutable
@@ -154,6 +169,56 @@ class SendCodeResult {
   final String otpToken;
   final DateTime? expiresAt;
   final int? attemptsAllowed;
+}
+
+/// One purchasable plan, from `GET /plans`.
+@immutable
+class Plan {
+  const Plan({
+    required this.code,
+    required this.name,
+    required this.priceToman,
+    required this.days,
+  });
+
+  final String code;
+  final String name;
+
+  /// ⚠ **TOMAN** — what the user is told, and the only money figure the client ever
+  /// sees. The gateway is sent ten times this in Rial; that number is computed on the
+  /// server and never reaches here (`INTERFACES.md` §6). Nothing in the client
+  /// multiplies or divides it.
+  final int priceToman;
+
+  final int days;
+
+  static Plan? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final Object? code = json['code'];
+    final Object? price = json['priceToman'];
+    final Object? days = json['days'];
+    if (code is! String || price is! num || days is! num) return null;
+    return Plan(
+      code: code,
+      name: json['name'] is String ? json['name'] as String : code,
+      priceToman: price.toInt(),
+      days: days.toInt(),
+    );
+  }
+
+  /// `400000` -> `۴۰۰٬۰۰۰`-style grouping in Latin digits: `400,000`.
+  ///
+  /// Grouped by hand rather than with `intl`, which was deliberately removed from this
+  /// app in [SA-V2] and is not coming back until localisation lands.
+  String get formattedToman {
+    final String digits = priceToman.toString();
+    final StringBuffer out = StringBuffer();
+    for (int i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) out.write(',');
+      out.write(digits[i]);
+    }
+    return out.toString();
+  }
 }
 
 /// `GET /membership`. The backend returns exactly these two fields.
@@ -174,7 +239,8 @@ class Membership {
 ///
 /// ⚠ No amount and no currency unit, so the client has nothing to render as a
 /// price and cannot independently confirm the Toman/Rial conversion
-/// (`INTERFACES.md` §6). Recorded in `DEVIATIONS.md` D-3.
+/// (`INTERFACES.md` §6). Recorded in `DEVIATIONS.md` D-3. The screen therefore
+/// states the price it was told at build time and never computes one.
 @immutable
 class PaymentStart {
   const PaymentStart({required this.paymentUrl, required this.authority});

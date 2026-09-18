@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/account_repository.dart';
 import '../../data/api_client.dart';
+import '../../data/deep_link_service.dart';
 import '../../data/device_identity.dart';
 import '../../data/secure_store.dart';
 import '../../domain/entitlement.dart';
@@ -28,6 +29,14 @@ const String kEntitlementPublicKeyPem = String.fromEnvironment(
 /// makes a missing override loud and immediate rather than a null at launch.
 final secureStoreProvider = Provider<SecureStore>((ref) {
   throw UnimplementedError('secureStoreProvider must be overridden in main()');
+});
+
+/// The platform deep-link channel. One instance for the app's lifetime, because the
+/// native side can deliver a link before any screen is listening.
+final deepLinkServiceProvider = Provider<DeepLinkService>((ref) {
+  final DeepLinkService service = DeepLinkService();
+  ref.onDispose(service.dispose);
+  return service;
 });
 
 final accountApiProvider = Provider<AccountApi>((ref) {
