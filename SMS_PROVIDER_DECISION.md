@@ -198,6 +198,66 @@ Listed because the brief requires unverified things to be marked, not buried.
 
 ---
 
+## 7. ADDENDUM 2026-09-18 — SMS.ir could not be set up. What to use instead.
+
+> **Saam, 2026-09-18:** *"sms panel? couldnt do it can you please see if you can find any
+> other good option for us"*
+
+§3's choice of SMS.ir stands in the record above and is **not** rewritten; this section
+supersedes it for the build.
+
+### 7.1 The answer depends on WHY it failed, and that is still unknown
+
+| If SMS.ir failed because of… | Then |
+|---|---|
+| **identity verification** — the کد ملی / Shahkar check, or the person signing up is not in Iran | **Switching SMS provider will not help.** §1.3 found four vendors' own docs converging on the same national-ID-plus-matching-phone rule, and Bale Business describes itself as for "کسب‌وکارها و سازمان‌ها" (businesses and organisations). International providers are already ruled out by the vendors themselves (§1.1: Twilio stopped delivering to Iran on 2025-03-15; AWS does not list Iran). **The fix is a person, not a vendor:** someone resident in Iran with a national ID (Amirali or his father) opens the account in their own name and hands over the key. |
+| **SMS.ir itself** — its panel, support, a rejected template, payment | **Switch to Kavenegar** (§7.2). |
+| **cost** | Keep an SMS provider and put **Bale Safir** in front of it (§7.3). |
+
+### 7.2 Recommended: **Kavenegar**
+
+It was the runner-up in §3, and the deciding facts are the ones that matter for this code:
+
+- **Same model as SMS.ir:** a template (الگو) plus **our** code. The `Lookup` method takes
+  the template name, the recipient and the code (vendor page, quoted: *"با فراخوانی متد
+  Lookup و ارسال نام الگو و شماره‌ی گیرنده و کد مربوطه"*). It fits `SmsPort.sendVerification
+  (phone, code)` exactly, so the OTP service, the hashing, the attempt counting and every
+  route are unchanged.
+- **Automatic voice-call fallback for the same code:** *"اگر همه سرویس ها دچار اختلال باشند با
+  تماس صوتی خودکار، کد را به گیرنده می‌رساند"* ("if every route fails, an automatic voice call
+  delivers the code"). No other vendor examined documents that.
+- **The only official, vendor-maintained Node SDK** of the eight in §2, and the best docs.
+- **Switch cost:** one adapter file shaped like `src/sms/smsir.ts`, its tests against a
+  mocked HTTP boundary, and three `.env` values. Nothing else in the backend or the app moves.
+
+**What the client has to produce:** an API key from `console.kavenegar.com`, and a
+**Verify template** containing the `%token%` placeholder, approved in the panel.
+
+### 7.3 Optional, for cost: **Bale Safir** (بله) in front of SMS
+
+Bale runs an official OTP channel through its business messaging API, separate from its bot
+API. Read from its own docs (`docs.bale.ai/safir`):
+
+- `POST https://safir.bale.ai/api/v3/send_message`, header `api-access-key`, body
+  `{bot_id, phone_number: "98…", message_data: {otp_message: {otp}}}`.
+- **We supply the code** (*"متن رمز یک‌بارمصرف ارسالی. در حال حاضر تنها رمز های عددی پشتیبانی
+  می‌شوند"*, numeric codes only). Same model again, so it fits the same port.
+- ⚠ **A user with no Bale account gets error 17, `NotBaleUser`, and no SMS is sent for
+  them.** Bale can therefore **never be the only channel**: it has to sit in front of an SMS
+  provider and fall through to it on error 17. The launch article says exactly this, that
+  the system identifies who is not on Bale so sending can be split between Bale and SMS.
+- **Price:** free for the first **100,000** OTP messages (Peivast, 16 Feb 2025). "Free"
+  in secondary summaries means that allowance, not free forever.
+- Other errors: `20 PaymentRequired`, `3 RateLimitExceeded`, `8 InvalidPhone`.
+
+### 7.4 Could not be verified from public sources
+
+- **Kavenegar's identity requirements.** Its FAQ URL returned 404 and the verification page
+  is silent on them. Assume the same national-ID rule as §1.3 until the vendor says
+  otherwise.
+- **Bale Business identity requirements.** `business.bale.ai` is a login wall.
+- **Kavenegar's per-message price,** and **Bale's price after the first 100,000.**
+
 ## 6. Sources
 
 41 sources, all accessed **2026-09-08**. Primary vendor documentation and policy pages were
