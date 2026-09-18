@@ -73,6 +73,15 @@ dependencies:
   # Its three desktop platform packages were already in the tree via
   # share_plus / file_picker; only the plugin itself is new.
   url_launcher: ^6.3.1
+  # ⚠ PINNED BELOW 6.3.26, AND THE REASON IS A BUILD THE TEST SUITE CANNOT SEE.
+  # 6.3.26 raised androidx.core to 1.17.0 and a later release raised
+  # androidx.browser to 1.9.0; both require Android Gradle Plugin 8.9.1, and
+  # this project builds with AGP 8.6.0. `flutter test` and `flutter analyze`
+  # never run Gradle, so the unpinned version passed both — 488/1/0, analyze 2 —
+  # while `flutter build apk` failed at checkDebugAarMetadata. Pinning the one
+  # plugin is surgical; bumping AGP would change the build for the whole app.
+  # Lift this pin only in the same change that upgrades AGP to >= 8.9.1.
+  url_launcher_android: ">=6.3.0 <6.3.26"
 
 dev_dependencies:
   flutter_test:

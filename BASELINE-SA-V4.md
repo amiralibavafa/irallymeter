@@ -66,6 +66,19 @@ make a number match, and do not weaken an assertion to make a test pass.
 | Phase 3 identity | 2026-09-08 | 464/1/0 | 2 | Installation UUID, monotonic clock, entitlement verifier. **+31.** Cross-language fixture: a blob signed by the real backend signer, verified in Dart. |
 | Phase 3 gate | 2026-09-08 | **475/1/0** | 2 | The gate, the login flow, the four screens. **+42 total.** Offline invariant falsified: adding one network call to `restore()` turns 3 tests red. |
 
+| Phase 3 payment | 2026-09-18 | **488/1/0** | 2 | Pay screen, deep link on both platforms, claim-session. **+13.** `url_launcher_android` pinned `<6.3.26` (see below). **Android AND iOS debug builds succeed.** |
+
+**⚠⚠ THIS GATE HAD A BLIND SPOT, and it let a broken Android build through.** Every row
+above was measured with `flutter test` + `flutter analyze`, and **neither runs Gradle**.
+`url_launcher` (added in "deps (3)") pulled `url_launcher_android` 6.3.33, which needs
+Android Gradle Plugin 8.9.1 against this project's 8.6.0. So `flutter build apk` failed at
+`checkDebugAarMetadata` while both gate numbers stayed perfect. Found only because the
+native deep-link code needed an actual build to verify. Fixed by pinning that one plugin.
+
+⇒ **From now on a phase that touches `pubspec.yaml` or anything under `android/`/`ios/` is
+not measured until `flutter build apk --debug` has also passed** (and `flutter build ios
+--debug --no-codesign` for iOS changes).
+
 **The rally baseline never moved.** Every number above is 433 plus new account tests;
 no pre-existing test was edited, skipped, or weakened, and `flutter analyze` stayed at
 its 2 pre-existing issues throughout.
