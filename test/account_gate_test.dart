@@ -186,6 +186,30 @@ void main() {
       expect(find.byKey(kRallyComputer), findsNothing);
     });
 
+    testWidgets(
+        '⚠ a LAPSED subscriber opens on membership, not on phone entry',
+        (WidgetTester tester) async {
+      // Master spec §"Expired User": they already know who they are, and the only
+      // thing between them and the app is a payment. Sending them to phone entry
+      // would make them prove their identity before being told the price.
+      seedValidSession();
+      await pumpGate(tester, wallClock: DateTime.utc(2026, 11, 1));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('This number needs a subscription'), findsOneWidget);
+      expect(find.text('PAY NOW'), findsOneWidget);
+      expect(find.text('Enter your phone number'), findsNothing);
+    });
+
+    testWidgets('but someone who never signed in still starts at phone entry',
+        (WidgetTester tester) async {
+      // The distinction the `subscriptionExpired` flag exists to make.
+      await pumpGate(tester, wallClock: DateTime.utc(2026, 9, 20));
+      await tester.pump();
+      expect(find.text('Enter your phone number'), findsOneWidget);
+    });
+
     testWidgets('⚠ when the clock is rolled back below the high-water mark',
         (WidgetTester tester) async {
       // The mark carries the whole rollback defence, because the backend emits

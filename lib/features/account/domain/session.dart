@@ -221,6 +221,53 @@ class Plan {
   }
 }
 
+/// `GET /config` — runtime configuration, so a price change needs no new APK.
+@immutable
+class AppConfig {
+  const AppConfig({
+    required this.monthlyPrice,
+    required this.maintenanceMode,
+    required this.paymentEnabled,
+    required this.minimumAppVersion,
+  });
+
+  /// ⚠ TOMAN. The client never converts it.
+  final int monthlyPrice;
+  final bool maintenanceMode;
+  final bool paymentEnabled;
+  final String minimumAppVersion;
+
+  /// Defaults match the backend's, so a failed fetch still yields a usable screen
+  /// rather than a blank price.
+  static const AppConfig fallback = AppConfig(
+    monthlyPrice: 400000,
+    maintenanceMode: false,
+    paymentEnabled: true,
+    minimumAppVersion: '1.0.0',
+  );
+
+  factory AppConfig.fromJson(Map<String, dynamic> json) => AppConfig(
+        monthlyPrice:
+            json['monthlyPrice'] is num ? (json['monthlyPrice'] as num).toInt() : fallback.monthlyPrice,
+        maintenanceMode: json['maintenanceMode'] == true,
+        // Same asymmetry as the server: payments are ON unless explicitly false.
+        paymentEnabled: json['paymentEnabled'] != false,
+        minimumAppVersion: json['minimumAppVersion'] is String
+            ? json['minimumAppVersion'] as String
+            : fallback.minimumAppVersion,
+      );
+
+  String get formattedPrice {
+    final String digits = monthlyPrice.toString();
+    final StringBuffer out = StringBuffer();
+    for (int i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) out.write(',');
+      out.write(digits[i]);
+    }
+    return out.toString();
+  }
+}
+
 /// `GET /membership`. The backend returns exactly these two fields.
 @immutable
 class Membership {

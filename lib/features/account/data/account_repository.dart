@@ -27,7 +27,12 @@ enum GateDecision {
 
 @immutable
 class GateState {
-  const GateState(this.decision, {this.session, this.reason});
+  const GateState(
+    this.decision, {
+    this.session,
+    this.reason,
+    this.subscriptionExpired = false,
+  });
 
   final GateDecision decision;
   final Session? session;
@@ -35,6 +40,13 @@ class GateState {
   /// Why entitlement was refused, when it was. Diagnostic only — never shown
   /// as a raw enum to a user.
   final EntitlementVerdict? reason;
+
+  /// A session WAS stored and its subscription has lapsed.
+  ///
+  /// Distinct from "never signed in": the master spec sends this user straight to the
+  /// membership screen rather than to phone entry, because they already know who they
+  /// are and the only thing standing between them and the app is a payment.
+  final bool subscriptionExpired;
 
   bool get isAdmitted => decision == GateDecision.admitted;
 }
@@ -109,7 +121,13 @@ class AccountRepository {
       // decorative: an attacker would simply corrupt the blob. This is also
       // where a blob bound to ANOTHER handset lands, which is what stops it
       // being a transferable licence.
-      return GateState(GateDecision.needsLogin, reason: result.verdict);
+      // An EXPIRED blob means the subscription ran out; anything else means the blob
+      // cannot be trusted and the user must sign in from scratch.
+      return GateState(
+        GateDecision.needsLogin,
+        reason: result.verdict,
+        subscriptionExpired: result.verdict == EntitlementVerdict.expired,
+      );
     }
 
     // No blob, or no key to check it with. `DEVIATIONS.md` D-2: a legitimate
@@ -122,7 +140,7 @@ class AccountRepository {
         ? GateState(GateDecision.admitted,
             session: session, reason: EntitlementVerdict.absent)
         : const GateState(GateDecision.needsLogin,
-            reason: EntitlementVerdict.absent);
+            reason: EntitlementVerdict.absent, subscriptionExpired: true);
   }
 
   // ── persistence ───────────────────────────────────────────────────────────
@@ -265,6 +283,9 @@ class AccountRepository {
   }
 
   Future<DeviceDescriptor> describeDevice() => _identity.describe();
+
+  /// Runtime configuration for the membership screen.
+  Future<AppConfig> appConfig() => _api.appConfig();
 
   /// Public pricing for the membership screen.
   Future<List<Plan>> plans() => _api.plans();

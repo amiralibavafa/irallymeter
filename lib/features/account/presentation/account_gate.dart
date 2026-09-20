@@ -52,7 +52,13 @@ class AccountGate extends ConsumerWidget {
               case GateDecision.admitted:
                 return child;
               case GateDecision.needsLogin:
-                return const _GateSurface(child: AccountFlowScreen());
+                // A lapsed subscriber opens on the membership screen; everyone else on
+                // phone entry (master spec §"Final User Experience").
+                return _GateSurface(
+                  child: AccountFlowScreen(
+                    startAtMembership: state.subscriptionExpired,
+                  ),
+                );
               case GateDecision.misconfigured:
                 return const _GateSurface(child: _MisconfiguredScreen());
             }

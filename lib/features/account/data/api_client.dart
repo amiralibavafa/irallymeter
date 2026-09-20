@@ -151,6 +151,11 @@ class AccountApi {
 
   // ── subscription and payment ──────────────────────────────────────────────
 
+  /// `GET /config`. Public runtime configuration; no token, same reason as `/plans`.
+  Future<AppConfig> appConfig() async {
+    return AppConfig.fromJson(await _get('/config'));
+  }
+
   /// `GET /plans`. Public pricing — no token, because the user who needs it does not
   /// have one yet.
   Future<List<Plan>> plans() async {

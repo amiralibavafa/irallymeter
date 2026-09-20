@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../account/presentation/providers/account_providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/widgets/app_clock.dart';
@@ -112,10 +113,87 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
             ],
+
+            // ── ACCOUNT ──────────────────────────────────────────────────────
+            // The ONLY account-layer addition to this pre-existing screen, and the
+            // minimum the master spec asks for: "Logout. Inside Settings."
+            const _SectionTitle('ACCOUNT'),
+            const _LogoutRow(),
           ],
         ),
       ),
     );
+  }
+}
+
+/// Signs out: revokes the session server-side, clears secure storage, and returns the
+/// app to the login screen.
+///
+/// ⚠ Confirms first. A logged-out co-driver mid-event has to find signal and an SMS
+/// code before the rally computer comes back, so this is not a tap to make easy.
+class _LogoutRow extends ConsumerStatefulWidget {
+  const _LogoutRow();
+
+  @override
+  ConsumerState<_LogoutRow> createState() => _LogoutRowState();
+}
+
+class _LogoutRowState extends ConsumerState<_LogoutRow> {
+  bool _busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+        leading: const Icon(Icons.logout, color: AppColors.danger),
+        title: Text(
+          _busy ? 'SIGNING OUT…' : 'Log out',
+          style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600),
+        ),
+        subtitle: const Text(
+          'You will need your phone number and an SMS code to sign back in.',
+          style: TextStyle(color: AppColors.textDim, fontSize: 12),
+        ),
+        onTap: _busy ? null : _confirm,
+      ),
+    );
+  }
+
+  Future<void> _confirm() async {
+    final bool ok = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) => AlertDialog(
+            backgroundColor: AppColors.surface,
+            title: const Text('Log out?', style: TextStyle(color: AppColors.textPrimary)),
+            content: const Text(
+              'Your trips stay on this phone. You will need your number and an SMS '
+              'code to sign back in.',
+              style: TextStyle(color: AppColors.textSecondary, height: 1.45),
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('CANCEL', style: TextStyle(color: AppColors.textSecondary)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('LOG OUT', style: TextStyle(color: AppColors.danger)),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!ok || !mounted) return;
+
+    setState(() => _busy = true);
+    // Server first, then local state. `logout()` already falls back to clearing
+    // locally if the network is down, so a user with no signal is not trapped.
+    await ref.read(accountRepositoryProvider).logout();
+    if (!mounted) return;
+    // Re-runs the launch decision, which now finds no session and shows the login flow.
+    ref.invalidate(gateStateProvider);
   }
 }
 

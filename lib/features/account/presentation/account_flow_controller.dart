@@ -60,6 +60,7 @@ class AccountFlowState {
     this.conflictingDevice,
     this.codeExpiresAt,
     this.plans = const <Plan>[],
+    this.config,
   });
 
   final AccountStep step;
@@ -82,6 +83,9 @@ class AccountFlowState {
   /// screen says so rather than inventing a price.
   final List<Plan> plans;
 
+  /// Runtime configuration from the backend, or null until it answers.
+  final AppConfig? config;
+
   AccountFlowState copyWith({
     AccountStep? step,
     bool? busy,
@@ -93,6 +97,7 @@ class AccountFlowState {
     ConflictingDevice? conflictingDevice,
     DateTime? codeExpiresAt,
     List<Plan>? plans,
+    AppConfig? config,
     bool clearError = false,
     bool clearConflict = false,
   }) =>
@@ -110,6 +115,7 @@ class AccountFlowState {
             : (conflictingDevice ?? this.conflictingDevice),
         codeExpiresAt: codeExpiresAt ?? this.codeExpiresAt,
         plans: plans ?? this.plans,
+        config: config ?? this.config,
       );
 }
 
@@ -220,6 +226,14 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
   /// ⚠ Needs a FRESH code, so this re-sends one and returns the user to code
   /// entry rather than taking over on a tap. Without a new SMS proof, anyone
   /// holding a stolen handset could evict the real owner.
+  /// Starts a Force Login from the LOGIN screen, where the number has just been typed
+  /// and no conflict has been seen yet. The master spec puts the button there as well as
+  /// on the conflict screen, because a user replacing a lost phone already knows.
+  Future<void> beginForceLoginWith(String phone) async {
+    state = state.copyWith(phone: phone);
+    await beginForceLogin();
+  }
+
   Future<void> beginForceLogin() async {
     if (state.busy) return;
     state = state.copyWith(busy: true, clearError: true);
@@ -261,6 +275,20 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
     }
   }
 
+  /// Opens on the membership screen for a user whose subscription has just lapsed.
+  ///
+  /// The master spec's expired-user flow goes straight here rather than to phone entry:
+  /// they already know who they are, and the only thing in the way is a payment.
+  void showRenewal() {
+    state = state.copyWith(
+      step: AccountStep.membership,
+      error: ApiErrorCode.subscriptionExpired,
+      clearConflict: true,
+    );
+    unawaited(loadPlans());
+    unawaited(loadConfig());
+  }
+
   /// Back to the beginning, dropping the OTP token.
   void restart() {
     _otpToken = null;
@@ -275,7 +303,14 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
   /// and waits for the deep link, or for the user to come back by hand.
   Future<void> startPayment(String planCode) async {
     final String? token = _paymentToken;
-    if (state.busy || token == null) return;
+    if (state.busy) return;
+    if (token == null) {
+      // ⚠ Reached by the RENEWAL path: the gate opened on the membership screen, so no
+      // OTP has been verified and there is no credential to pay with. Paying must prove
+      // the number first — a Pay button that 401s would be a dead end with a price on it.
+      state = state.copyWith(step: AccountStep.phone, clearError: true);
+      return;
+    }
     state = state.copyWith(busy: true, clearError: true);
     try {
       final PaymentStart start =
@@ -333,6 +368,19 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
     }
   }
 
+  /// Loads runtime configuration (master spec §"app_config").
+  ///
+  /// ⚠ Called from the ACCOUNT flow only, never from the gate. The gate must not await
+  /// a network call: `SPEC.md` §4 says the speedometer never waits for one, and a
+  /// config fetch at launch would put exactly that on the path a driver depends on.
+  Future<void> loadConfig() async {
+    try {
+      state = state.copyWith(config: await _repository.appConfig());
+    } on ApiException {
+      /* the screen falls back to the plan price; never blocks on config */
+    }
+  }
+
   /// Loads public pricing. Failure is silent by design: the membership screen renders
   /// without a price rather than blocking on it, and the gateway shows the amount
   /// again before any money moves.
@@ -359,6 +407,7 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
           clearError: true,
         );
         unawaited(loadPlans());
+        unawaited(loadConfig());
     }
   }
 
@@ -428,6 +477,8 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
 
       // Everything else stays on the screen it happened on: the user can
       // reasonably retry from there.
+      // Stays on the screen it happened on: the user can read the wait and decide.
+      case ApiErrorCode.forceLoginCooldown:
       case ApiErrorCode.rateLimited:
       case ApiErrorCode.otpSendFailed:
       case ApiErrorCode.validationError:

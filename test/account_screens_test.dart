@@ -85,7 +85,7 @@ void main() {
         (WidgetTester tester) async {
       await pumpFlow(tester, <String, ({int status, Map<String, dynamic> body})>{});
       expect(find.text('Enter your phone number'), findsOneWidget);
-      expect(find.text('SEND CODE'), findsOneWidget);
+      expect(find.text('CONTINUE'), findsOneWidget);
     });
 
     testWidgets('typing a number and tapping SEND CODE moves to code entry',
@@ -95,19 +95,48 @@ void main() {
       });
 
       await tester.enterText(find.byType(TextField), '09121234567');
-      await tester.tap(find.text('SEND CODE'));
-      await tester.pump();
-      await tester.pump();
+      await tapCta(tester, 'CONTINUE');
 
       expect(find.text('Enter the code'), findsOneWidget);
       // The number is echoed back so the user can see they typed it right.
       expect(find.textContaining('09121234567'), findsOneWidget);
     });
 
+    testWidgets('offers Get Membership and Force Login with an explanation',
+        (WidgetTester tester) async {
+      // The master spec lists all four elements on this screen.
+      await pumpFlow(tester, <String, ({int status, Map<String, dynamic> body})>{});
+      // Rich text: the line is one TextSpan tree, so the finder must look inside it.
+      expect(find.textContaining('Not a member?', findRichText: true), findsOneWidget);
+      expect(find.textContaining('Get Membership', findRichText: true), findsOneWidget);
+      expect(find.text('FORCE LOGIN'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.info_outline));
+      await tester.pumpAndSettle();
+      // The dialog says what it COSTS, not just what it does.
+      expect(find.textContaining('sign the other one out'), findsOneWidget);
+      expect(find.textContaining('once every 24 hours'), findsOneWidget);
+    });
+
+    testWidgets('Force Login from the login screen sends a fresh code first',
+        (WidgetTester tester) async {
+      // It can never be a bare "take over" button: without a new SMS, anyone holding a
+      // stolen handset could evict the real owner.
+      await pumpFlow(tester, <String, ({int status, Map<String, dynamic> body})>{
+        '/auth/send-code': kCodeSent,
+      });
+      await tester.enterText(find.byType(TextField), '09121234567');
+      await tester.tap(find.text('FORCE LOGIN'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Enter the code'), findsOneWidget);
+      expect(find.textContaining('MOVE THIS ACCOUNT'), findsOneWidget);
+    });
+
     testWidgets('an empty number does nothing rather than calling the server',
         (WidgetTester tester) async {
       await pumpFlow(tester, <String, ({int status, Map<String, dynamic> body})>{});
-      await tester.tap(find.text('SEND CODE'));
+      await tapCta(tester, 'CONTINUE');
       await tester.pump();
       expect(find.text('Enter your phone number'), findsOneWidget);
     });
@@ -126,9 +155,7 @@ void main() {
       });
 
       await tester.enterText(find.byType(TextField), '12345');
-      await tester.tap(find.text('SEND CODE'));
-      await tester.pump();
-      await tester.pump();
+      await tapCta(tester, 'CONTINUE');
 
       expect(find.textContaining('Iranian mobile number'), findsOneWidget);
     });
@@ -144,9 +171,7 @@ void main() {
         ...routes,
       });
       await tester.enterText(find.byType(TextField), '09121234567');
-      await tester.tap(find.text('SEND CODE'));
-      await tester.pump();
-      await tester.pump();
+      await tapCta(tester, 'CONTINUE');
     }
 
     testWidgets('a wrong code keeps the user on the screen and says so',
@@ -234,7 +259,7 @@ void main() {
       // price and must never show the Rial figure sent to the gateway.
       expect(find.textContaining('400,000'), findsOneWidget);
       expect(find.textContaining('4,000,000'), findsNothing);
-      expect(find.text('PAY AND ACTIVATE'), findsOneWidget);
+      expect(find.text('PAY NOW'), findsOneWidget);
     });
   });
 
@@ -259,9 +284,7 @@ void main() {
       });
 
       await tester.enterText(find.byType(TextField), '09121234567');
-      await tester.tap(find.text('SEND CODE'));
-      await tester.pump();
-      await tester.pump();
+      await tapCta(tester, 'CONTINUE');
       await tester.enterText(find.byType(TextField), '123456');
       await tester.tap(find.widgetWithText(FilledButton, 'VERIFY'));
       await tester.pump();

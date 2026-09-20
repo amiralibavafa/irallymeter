@@ -24,6 +24,9 @@ enum ApiErrorCode {
   validationError('VALIDATION_ERROR'),
   internal('INTERNAL'),
 
+  /// Force Login was used on this account within the last 24 hours.
+  forceLoginCooldown('FORCE_LOGIN_COOLDOWN'),
+
   /// The wire carried a `code` this build does not know.
   ///
   /// Not in `INTERFACES.md` and deliberately so: the enum is closed by the

@@ -17,11 +17,31 @@ import 'widgets/account_ui.dart';
 /// is the app's one precedent copied verbatim, the input style is authored in
 /// `account_ui.dart` because the theme defines none, and spacing follows the
 /// measured rule of 24 between sections, 12 under a label, 14 inside a card.
-class AccountFlowScreen extends ConsumerWidget {
-  const AccountFlowScreen({super.key});
+class AccountFlowScreen extends ConsumerStatefulWidget {
+  const AccountFlowScreen({this.startAtMembership = false, super.key});
+
+  /// Open on the membership screen instead of phone entry. Set by the gate when a
+  /// stored session's subscription has lapsed.
+  final bool startAtMembership;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AccountFlowScreen> createState() => _AccountFlowScreenState();
+}
+
+class _AccountFlowScreenState extends ConsumerState<AccountFlowScreen> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.startAtMembership) {
+      // After the first frame: the controller cannot be mutated during a build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(accountFlowProvider.notifier).showRenewal();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final AccountFlowState state = ref.watch(accountFlowProvider);
     switch (state.step) {
       case AccountStep.phone:
@@ -54,6 +74,11 @@ String? _explain(AccountFlowState state) {
       return 'Too many wrong attempts. Request a new code.';
     case ApiErrorCode.otpSendFailed:
       return 'The code could not be sent. Try again in a moment.';
+    case ApiErrorCode.forceLoginCooldown:
+      // Force Login is capped at once per 24 hours so one subscription cannot be
+      // passed around. The server's message carries the remaining hours.
+      return state.message ??
+          'This account was moved to another phone recently. Try again later.';
     case ApiErrorCode.rateLimited:
       final int? wait = state.retryAfterSeconds;
       return wait == null
@@ -77,7 +102,8 @@ String? _explain(AccountFlowState state) {
       // These are whole screens, not inline notices.
       return null;
     case ApiErrorCode.paymentFailed:
-      return 'The payment was not completed.';
+      // The master spec's wording, verbatim.
+      return 'Payment unsuccessful. Please try again.';
     case ApiErrorCode.paymentNotVerified:
       // Reached when the server still sees no live subscription. Deliberately not
       // "payment failed": a gateway can confirm late, and telling someone their money
@@ -159,10 +185,62 @@ class _PhoneViewState extends ConsumerState<_PhoneView> {
         ),
         const SizedBox(height: 24),
         AccountCta(
-          label: 'SEND CODE',
+          label: 'CONTINUE',
           busyLabel: 'SENDING…',
           busy: state.busy,
           onPressed: () => _submit(_controller.text),
+        ),
+        const SizedBox(height: 12),
+        // "Not a member? Get Membership". It runs the SAME path as Continue, because
+        // the server decides: a number with no live subscription is answered with
+        // PAYMENT_REQUIRED and lands on the membership screen by itself. Presenting it
+        // as a separate route would be a lie in the UI about how the system works.
+        Center(
+          child: TextButton(
+            onPressed: state.busy ? null : () => _submit(_controller.text),
+            child: const Text.rich(
+              TextSpan(
+                children: <InlineSpan>[
+                  TextSpan(
+                    text: 'Not a member? ',
+                    style: TextStyle(color: AppColors.textDim, fontSize: 14),
+                  ),
+                  TextSpan(
+                    text: 'Get Membership',
+                    style: TextStyle(
+                      color: AppColors.accent,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            TextButton(
+              onPressed: state.busy ? null : () => _forceLogin(_controller.text),
+              child: const Text(
+                'FORCE LOGIN',
+                style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+            IconButton(
+              onPressed: () => _explainForceLogin(context),
+              icon: const Icon(Icons.info_outline,
+                  color: AppColors.textDim, size: 18),
+              tooltip: 'What is Force Login?',
+            ),
+          ],
         ),
         _noticeFor(state),
       ],
@@ -173,6 +251,39 @@ class _PhoneViewState extends ConsumerState<_PhoneView> {
     final String phone = value.trim();
     if (phone.isEmpty) return;
     ref.read(accountFlowProvider.notifier).sendCode(phone);
+  }
+
+  void _forceLogin(String value) {
+    final String phone = value.trim();
+    if (phone.isEmpty) return;
+    ref.read(accountFlowProvider.notifier).beginForceLoginWith(phone);
+  }
+
+  /// The info icon the master spec asks for beside Force Login.
+  ///
+  /// It says what the button COSTS, not just what it does: it signs the other phone
+  /// out, and it cannot be used again for 24 hours.
+  void _explainForceLogin(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Force Login', style: TextStyle(color: AppColors.textPrimary)),
+        content: const Text(
+          'Use this if your subscription is signed in on a phone you no longer '
+          'have.\n\nWe send a code to your number, then move the subscription to '
+          'this phone and sign the other one out.\n\nIt can only be used once '
+          'every 24 hours.',
+          style: TextStyle(color: AppColors.textSecondary, height: 1.45),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('GOT IT', style: TextStyle(color: AppColors.accent)),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -386,8 +497,7 @@ class _MembershipView extends ConsumerWidget {
           title: 'This number needs a subscription',
           // The backend collapses "never subscribed" and "lapsed" into one answer on
           // purpose, so the copy cannot claim to know which it is.
-          body: 'Your number is verified. A subscription unlocks the rally '
-              'computer on this phone.',
+          body: 'A subscription unlocks the rally computer on this phone.',
         ),
         const SizedBox(height: 24),
         Container(
@@ -404,7 +514,8 @@ class _MembershipView extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      plan?.name.toUpperCase() ?? 'SUBSCRIPTION',
+                      // The master spec names one package: "iRallyMeter Pro".
+                      (plan?.name ?? 'iRallyMeter Pro').toUpperCase(),
                       style: const TextStyle(
                         color: AppColors.textSecondary,
                         fontSize: 13,
@@ -416,9 +527,10 @@ class _MembershipView extends ConsumerWidget {
                     Text(
                       // No price until GET /plans answers. Saying so beats inventing
                       // one, and the gateway shows the amount again anyway.
-                      plan == null
-                          ? 'Amount shown on the payment page'
-                          : '${plan.formattedToman} Toman',
+                      // Price comes from runtime config first (so a change needs no new
+                      // APK), then the plan, then the documented default. It is never
+                      // computed here and never shown as zero.
+                      '${state.config?.formattedPrice ?? plan?.formattedToman ?? "400,000"} Toman',
                       style: const TextStyle(
                         color: AppColors.textPrimary,
                         fontSize: 22,
@@ -430,9 +542,8 @@ class _MembershipView extends ConsumerWidget {
                   ],
                 ),
               ),
-              if (plan != null)
-                Text(
-                  '${plan.days} DAYS',
+              Text(
+                  '${plan?.days ?? 30} DAYS',
                   style: const TextStyle(
                     color: AppColors.textDim,
                     fontSize: 13,
@@ -446,10 +557,21 @@ class _MembershipView extends ConsumerWidget {
         ),
         const SizedBox(height: 24),
         AccountCta(
-          label: 'PAY AND ACTIVATE',
+          label: 'PAY NOW',
           busyLabel: 'PAYING…',
           busy: state.busy,
-          onPressed: () => controller.startPayment(plan?.code ?? 'monthly'),
+          // Disabled by the SERVER's kill switch, not by a local flag.
+          onPressed: state.config?.paymentEnabled == false
+              ? null
+              : () => controller.startPayment(plan?.code ?? 'monthly'),
+        ),
+        const SizedBox(height: 12),
+        // The master spec puts "I Have Paid" on the membership screen as well as on the
+        // waiting screen: a user who paid and came back through the task switcher may
+        // never see the waiting screen at all.
+        AccountSecondaryAction(
+          label: 'I HAVE PAID',
+          onPressed: state.busy ? null : controller.checkPayment,
         ),
         const SizedBox(height: 12),
         const Text(
