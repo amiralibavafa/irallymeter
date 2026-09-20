@@ -250,6 +250,30 @@ API. Read from its own docs (`docs.bale.ai/safir`):
   in secondary summaries means that allowance, not free forever.
 - Other errors: `20 PaymentRequired`, `3 RateLimitExceeded`, `8 InvalidPhone`.
 
+### 7.5 ✅ DECIDED 2026-09-19 — Kavenegar, and the adapter is BUILT
+
+> **Saam, 2026-09-19:** *"use kavenegar, build the adapter"*
+
+`src/sms/kavenegar.ts` + 40 tests. Both adapters are kept and `SMS_PROVIDER` alone
+decides, so this is a config change for the client rather than a code change: nothing in
+the OTP service, the routes or the app knows a provider name.
+
+⚠ **One difference from SMS.ir is dangerous and is handled explicitly.** Kavenegar's API
+key is a **URL path segment**, not a header, so the URL of a failing request *is* a
+credential. The adapter never puts a URL in an error, and a test walks every failure path
+asserting the key appears in neither `err.message` nor `String(err)` — with a control
+asserting the key really is in the URL we send, so the guard cannot pass vacuously.
+
+⚠ The request is **POSTed with a form body, not GET**, because on GET the code would join
+the URL and URLs are what proxies and access logs keep.
+
+**Still needed from the client:** the API key from `console.kavenegar.com`, and an
+approved template (الگو) whose text contains the `%token%` placeholder. Put the template
+**name** in `SMS_TEMPLATE_ID`; leave `SMS_BASE_URL` empty.
+
+⚠ **Nothing here has been exercised against the live service.** No key exists. The first
+real send must happen before anyone ships.
+
 ### 7.4 Could not be verified from public sources
 
 - **Kavenegar's identity requirements.** Its FAQ URL returned 404 and the verification page
