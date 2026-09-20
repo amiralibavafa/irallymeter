@@ -299,6 +299,8 @@ void main() {
     });
   });
 
+  _smsDisabledTests();
+
   group('the error code is what drives the copy, never the message string', () {
     test('every wire code parses to its own enum value', () {
       // INTERFACES.md §1: the client switches on `code` and never parses `message`.
@@ -322,6 +324,60 @@ void main() {
       // Junk is refused rather than half-built.
       expect(ConflictingDevice.fromJson(null), isNull);
       expect(ConflictingDevice.fromJson(<String, dynamic>{'lastSeen': 'x'}), isNull);
+    });
+  });
+}
+
+// ── TEMPORARY DEVELOPMENT FLOW: SMS_AUTH_ENABLED=false on the server ─────────────
+//
+// The app must not show a code screen when no code was sent. It decides from the
+// SERVER's answer, never from a flag of its own, so one switch controls both halves.
+void _smsDisabledTests() {
+  group('when the server says no code is required', () {
+    testWidgets('⚠ skips the OTP screen entirely and goes straight on',
+        (WidgetTester tester) async {
+      await pumpFlow(tester, <String, ({int status, Map<String, dynamic> body})>{
+        '/auth/send-code': (
+          status: 200,
+          body: <String, dynamic>{
+            'otpToken': 'otp-1',
+            'expiresAt': '2099-01-01T00:00:00Z',
+            'otpRequired': false,
+          },
+        ),
+        '/auth/verify-code': (
+          status: 200,
+          body: <String, dynamic>{
+            'next': 'PAYMENT_REQUIRED',
+            'userId': 'u-1',
+            'paymentToken': 'pay-1',
+          },
+        ),
+        '/plans': (status: 200, body: <String, dynamic>{'plans': <dynamic>[]}),
+      });
+
+      await tester.enterText(find.byType(TextField), '09121234567');
+      await tapCta(tester, 'CONTINUE');
+      await tester.pump();
+
+      expect(find.text('Enter the code'), findsNothing);
+      expect(find.text('This number needs a subscription'), findsOneWidget);
+    });
+
+    testWidgets('⚠ but a MISSING otpRequired still shows the code screen',
+        (WidgetTester tester) async {
+      // The safety direction. An older server, a proxy that drops the field, or a
+      // malformed response must leave the app asking for a code — never skipping it.
+      await pumpFlow(tester, <String, ({int status, Map<String, dynamic> body})>{
+        '/auth/send-code': (
+          status: 200,
+          body: <String, dynamic>{'otpToken': 'otp-1', 'expiresAt': '2099-01-01T00:00:00Z'},
+        ),
+      });
+
+      await tester.enterText(find.byType(TextField), '09121234567');
+      await tapCta(tester, 'CONTINUE');
+      expect(find.text('Enter the code'), findsOneWidget);
     });
   });
 }

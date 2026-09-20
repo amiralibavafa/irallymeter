@@ -66,6 +66,8 @@ class AccountApi {
       expiresAt: _utc(body['expiresAt']),
       attemptsAllowed:
           body['attemptsAllowed'] is num ? (body['attemptsAllowed'] as num).toInt() : null,
+      // Only an explicit `false` skips the code screen; anything else keeps it.
+      otpRequired: body['otpRequired'] != false,
     );
   }
 
@@ -76,8 +78,8 @@ class AccountApi {
   /// [ApiException] carrying the other device.
   Future<VerifyCodeResult> verifyCode({
     required String otpToken,
-    required String code,
     required DeviceDescriptor device,
+    String? code,
     String? phone,
   }) async {
     final Map<String, dynamic> body = await _post(
@@ -87,7 +89,8 @@ class AccountApi {
         // zod schema says `code`, and a `pin` field is rejected as a
         // VALIDATION_ERROR. See DEVIATIONS.md D-3.
         'otpToken': otpToken,
-        'code': code,
+        // Omitted entirely when the server is running with SMS auth switched off.
+        if (code != null) 'code': code,
         'device': device.toJson(),
       },
     );
@@ -99,8 +102,8 @@ class AccountApi {
   /// refused, so a Force Login can never be replayed.
   Future<VerifyCodeResult> forceLogin({
     required String otpToken,
-    required String code,
     required DeviceDescriptor device,
+    String? code,
     String? phone,
   }) async {
     final Map<String, dynamic> body = await _post(
@@ -111,7 +114,7 @@ class AccountApi {
         // `{otpToken, device}` with no code, which taken literally would let
         // anyone who can call send-code evict the real owner's device.
         'otpToken': otpToken,
-        'code': code,
+        if (code != null) 'code': code,
         'device': device.toJson(),
       },
     );

@@ -185,6 +185,16 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
     try {
       final SendCodeResult result = await _repository.sendCode(phone);
       _otpToken = result.otpToken;
+
+      // ⚠ TEMPORARY DEVELOPMENT FLOW (server: SMS_AUTH_ENABLED=false). No message was
+      // sent, so a code screen would ask for something that does not exist. This skips
+      // a SCREEN, never a step: the server still verifies the session, it just does not
+      // require a code.
+      if (!result.otpRequired) {
+        await _verify();
+        return;
+      }
+
       state = state.copyWith(
         step: AccountStep.code,
         busy: false,
@@ -199,8 +209,17 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
 
   /// `POST /auth/verify-code`.
   Future<void> submitCode(String code) async {
-    final String? token = _otpToken;
     if (state.busy) return;
+    await _verify(code: code);
+  }
+
+  /// Verifies, with or without a code.
+  ///
+  /// `code` is null ONLY on the temporary development flow, where the server accepts
+  /// the session without one. Single use, expiry and the unknown-token path are all
+  /// still enforced server-side either way.
+  Future<void> _verify({String? code}) async {
+    final String? token = _otpToken;
     if (token == null) {
       // No token means the flow was restarted underneath us. Sending them back
       // to phone entry is the only honest move.
@@ -217,7 +236,8 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
       );
       _afterVerify(result);
     } on ApiException catch (e) {
-      state = _failure(e, step: AccountStep.code);
+      // With no code screen there is nowhere to send them but back to phone entry.
+      state = _failure(e, step: code == null ? AccountStep.phone : AccountStep.code);
     }
   }
 
@@ -240,6 +260,15 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
     try {
       final SendCodeResult result = await _repository.sendCode(state.phone);
       _otpToken = result.otpToken;
+      _forcing = true;
+
+      // Same reasoning as sendCode: with SMS off there is no code screen to show, so
+      // the takeover completes directly.
+      if (!result.otpRequired) {
+        await submitForceLoginCode(null);
+        return;
+      }
+
       state = state.copyWith(
         step: AccountStep.code,
         busy: false,
@@ -247,7 +276,6 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
         codeExpiresAt: result.expiresAt,
         clearError: true,
       );
-      _forcing = true;
     } on ApiException catch (e) {
       state = _failure(e, step: AccountStep.conflict);
     }
@@ -258,9 +286,9 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
   bool _forcing = false;
   bool get isForcing => _forcing;
 
-  Future<void> submitForceLoginCode(String code) async {
+  Future<void> submitForceLoginCode(String? code) async {
     final String? token = _otpToken;
-    if (state.busy || token == null) return;
+    if (token == null) return;
     state = state.copyWith(busy: true, clearError: true);
     try {
       final VerifyCodeResult result = await _repository.forceLogin(

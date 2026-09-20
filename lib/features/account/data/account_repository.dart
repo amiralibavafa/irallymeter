@@ -225,8 +225,8 @@ class AccountRepository {
 
   Future<VerifyCodeResult> verifyCode({
     required String otpToken,
-    required String code,
     required String phone,
+    String? code,
   }) async {
     final VerifyCodeResult result = await _api.verifyCode(
       otpToken: otpToken,
@@ -242,8 +242,8 @@ class AccountRepository {
   /// [AccountApi.forceLogin].
   Future<VerifyCodeResult> forceLogin({
     required String otpToken,
-    required String code,
     required String phone,
+    String? code,
   }) async {
     final VerifyCodeResult result = await _api.forceLogin(
       otpToken: otpToken,

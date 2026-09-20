@@ -163,12 +163,21 @@ class SendCodeResult {
     required this.otpToken,
     this.expiresAt,
     this.attemptsAllowed,
+    this.otpRequired = true,
   });
 
   /// Held in MEMORY only — it never reaches storage.
   final String otpToken;
   final DateTime? expiresAt;
   final int? attemptsAllowed;
+
+  /// False when the server has `SMS_AUTH_ENABLED=false`: no message was sent and the
+  /// app must NOT ask for a code.
+  ///
+  /// ⚠ DEFAULTS TO TRUE, and that direction is the safety property. An older server, a
+  /// proxy that drops the field, or a malformed response all leave the app asking for a
+  /// code — the strict behaviour — rather than skipping verification.
+  final bool otpRequired;
 }
 
 /// One purchasable plan, from `GET /plans`.
