@@ -39,6 +39,23 @@ class SecureKeys {
   /// for a valid session — see `DEVIATIONS.md` D-2.
   static const String entitlement = 'account.entitlement';
 
+  /// The payment-scoped token, held ONLY between starting a payment and claiming
+  /// the session it earns.
+  ///
+  /// ⚠⚠ THIS REVERSES A DELIBERATE EARLIER DECISION, and the old reasoning is kept
+  /// rather than deleted: the token was memory-only because "persisting a
+  /// purchase-authorising token across a kill to save one SMS is a worse trade".
+  /// That weighed the wrong cost. On a physical iPhone the app is routinely
+  /// TERMINATED while the user is at the payment gateway, so the token was gone on
+  /// the single path that needs it most, and "I HAVE PAID" silently did nothing
+  /// while the server had already taken the money.
+  ///
+  /// It is safe to keep here: it authorises starting or claiming ONE user's
+  /// payment, it expires in 30 minutes server-side, the server re-verifies
+  /// everything it is presented for, and it is deleted the moment a session
+  /// exists. It is not a session and it grants no access on its own.
+  static const String paymentToken = 'account.payment_token';
+
   /// The monotonic high-water mark, RFC 3339 UTC. See [MonotonicClock].
   static const String clockMark = 'account.clock_mark';
 }

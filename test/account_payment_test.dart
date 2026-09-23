@@ -335,6 +335,65 @@ void main() {
       expect(c.state.step, AccountStep.membership);
     });
 
+    test(
+        '⚠⚠ REGRESSION: "I have paid" works after the app was KILLED at the gateway',
+        () async {
+      // THE REPORTED BUG. Every other test in this group primes the token by calling
+      // `startPayment` first, which is exactly why this survived: the null branch was
+      // never exercised.
+      //
+      // `_paymentToken` is memory-only, and on a physical iPhone the app is routinely
+      // TERMINATED while the user is at the payment gateway. The deep link then
+      // relaunches a FRESH controller with nothing in memory, `_claimAfterPayment` hit
+      // `if (token == null) return;`, and the button did nothing at all: no busy state,
+      // no error, no navigation, no request — while the server had already banked the
+      // money and activated the subscription.
+      bool admitted = false;
+      final AccountFlowController c = controllerWith(
+        responses: <String, Map<String, dynamic>>{
+          '/auth/claim-session': <String, dynamic>{
+            'next': 'SESSION',
+            'session': jsonDecode(kSessionJson) as Map<String, dynamic>,
+          },
+        },
+        onAdmitted: () => admitted = true,
+      );
+
+      // The post-kill state: nothing in memory, but the token survived on disk.
+      store.seed(SecureKeys.paymentToken, 'pay-token-1');
+      await c.checkPayment();
+
+      expect(paths, contains('/auth/claim-session'),
+          reason: 'the server must actually be asked');
+      expect(admitted, isTrue, reason: 'the rally computer opens');
+      expect(store.snapshot[SecureKeys.refreshToken], 'refresh-1',
+          reason: 'the session is persisted, so a reopen restores it');
+      expect(store.snapshot[SecureKeys.paymentToken], isNull,
+          reason: 'the token is spent and must not linger');
+    });
+
+    test('⚠ with no token anywhere it stays a safe no-op, not a fake session',
+        () async {
+      // The control. The fix must not let the app invent access it was never granted:
+      // with nothing in memory AND nothing on disk there is nothing to claim, so the
+      // server is never asked and nobody is admitted.
+      bool admitted = false;
+      final AccountFlowController c = controllerWith(
+        responses: <String, Map<String, dynamic>>{
+          '/auth/claim-session': <String, dynamic>{
+            'next': 'SESSION',
+            'session': jsonDecode(kSessionJson) as Map<String, dynamic>,
+          },
+        },
+        onAdmitted: () => admitted = true,
+      );
+
+      await c.checkPayment();
+
+      expect(admitted, isFalse);
+      expect(paths, isEmpty);
+    });
+
     test('the manual "I have paid" button runs the same path as the link',
         () async {
       // It is a second first-class route, not a fallback: returning through the task

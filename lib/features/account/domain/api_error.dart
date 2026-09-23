@@ -63,19 +63,34 @@ enum ApiErrorCode {
 /// to profile it."*
 @immutable
 class ConflictingDevice {
-  const ConflictingDevice({required this.deviceName, this.lastSeen});
+  const ConflictingDevice({this.deviceName, this.lastSeen});
 
-  final String deviceName;
+  /// ⚠ NULLABLE, because the backend really sends null here. `deviceName` is
+  /// optional on registration, so a device that was registered without one comes
+  /// back as `{"deviceName": null, "lastSeen": "..."}` — measured against the live
+  /// service, not assumed.
+  final String? deviceName;
   final DateTime? lastSeen;
 
+  /// ⚠⚠ A NULL NAME NO LONGER DISCARDS THE WHOLE OBJECT. This used to bail with
+  /// `if (name is! String) return null`, which threw away a perfectly good
+  /// `lastSeen` alongside it and left the conflict screen unable to say when the
+  /// other phone was last used. The existing test only ever passed a real name, so
+  /// the branch that actually ships was never exercised.
+  ///
+  /// Junk is still refused: a non-Map is null, and a name of the wrong TYPE is
+  /// dropped rather than stringified, so `deviceName: 42` cannot reach the UI.
   static ConflictingDevice? fromJson(Object? json) {
     if (json is! Map) return null;
     final Object? name = json['deviceName'];
-    if (name is! String) return null;
     final Object? seen = json['lastSeen'];
+    final DateTime? lastSeen =
+        seen is String ? DateTime.tryParse(seen)?.toUtc() : null;
+    // Nothing usable at all is still nothing.
+    if (name is! String && lastSeen == null) return null;
     return ConflictingDevice(
-      deviceName: name,
-      lastSeen: seen is String ? DateTime.tryParse(seen)?.toUtc() : null,
+      deviceName: name is String ? name : null,
+      lastSeen: lastSeen,
     );
   }
 }

@@ -13,7 +13,7 @@ import 'secure_store.dart';
 /// so `test/account/device_identity_test.dart` reads the pubspec and fails if
 /// the two disagree. A constant with a test behind it is not a hard-coded
 /// value in the sense the rules forbid; an undetected drift would be.
-const String kAppVersion = '1.0.0+1';
+const String kAppVersion = '1.0.1+2';
 
 /// Everything the backend is told about this handset, and nothing more.
 ///

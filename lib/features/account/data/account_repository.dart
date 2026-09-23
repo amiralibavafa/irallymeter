@@ -172,7 +172,16 @@ class AccountRepository {
   /// entire family — logging the user out of a subscription they paid for.
   /// Writing the token first makes the worst case a stale access token, which
   /// refresh fixes by itself.
+  /// Remember the payment token so it survives the app being killed at the gateway.
+  Future<void> savePaymentToken(String token) =>
+      _store.write(SecureKeys.paymentToken, token);
+
+  /// The payment token from a previous run, if the app was killed mid-payment.
+  Future<String?> readPaymentToken() => _store.read(SecureKeys.paymentToken);
+
   Future<void> saveSession(Session session) async {
+    // Spent: the token existed only to earn this session.
+    await _store.delete(SecureKeys.paymentToken);
     await _store.write(SecureKeys.refreshToken, session.refreshToken);
     await _store.write(
       SecureKeys.session,
@@ -214,6 +223,7 @@ class AccountRepository {
   /// a session, it does not make this a different phone (`INTERFACES.md` §0
   /// R4).
   Future<void> clear() async {
+    await _store.delete(SecureKeys.paymentToken);
     await _store.delete(SecureKeys.session);
     await _store.delete(SecureKeys.refreshToken);
     await _store.delete(SecureKeys.entitlement);

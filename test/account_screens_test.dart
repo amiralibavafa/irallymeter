@@ -299,6 +299,50 @@ void main() {
     });
   });
 
+  group('device conflict with an unnamed device', () {
+    testWidgets(
+        '⚠⚠ the conflict screen still explains itself when the other device has '
+        'NO NAME', (WidgetTester tester) async {
+      // THE REAL PAYLOAD. Measured against the live backend: a device registered
+      // without a name comes back as
+      //   {"code":"DEVICE_CONFLICT","activeDevice":{"deviceName":null,"lastSeen":"..."}}
+      // The existing conflict test uses 'iPhone 13' and therefore never exercised
+      // this, the same blind spot that hid the payment bug: every test primed the
+      // happy value, so the branch that actually ships was never run.
+      await pumpFlow(tester, <String, ({int status, Map<String, dynamic> body})>{
+        '/auth/send-code': kCodeSent,
+        '/auth/verify-code': (
+          status: 409,
+          body: <String, dynamic>{
+            'error': <String, dynamic>{
+              'code': 'DEVICE_CONFLICT',
+              'message': 'this number is signed in on another device',
+              'activeDevice': <String, dynamic>{
+                'deviceName': null,
+                'lastSeen': '2026-09-19T10:00:00Z',
+              },
+            },
+          },
+        ),
+      });
+
+      await tester.enterText(find.byType(TextField), '09121234567');
+      await tapCta(tester, 'CONTINUE');
+      await tester.enterText(find.byType(TextField), '123456');
+      await tester.tap(find.widgetWithText(FilledButton, 'VERIFY'));
+      await tester.pump();
+      await tester.pump();
+
+      // The user must still land on the conflict screen and understand it.
+      expect(find.text('This number is on another phone'), findsOneWidget);
+      expect(find.text('MOVE IT TO THIS PHONE'), findsOneWidget);
+      // And must NEVER be shown the literal word "null".
+      expect(find.textContaining('null'), findsNothing);
+      // The last-seen time is still useful even with no name, so it must survive.
+      expect(find.textContaining('last used'), findsOneWidget);
+    });
+  });
+
   _smsDisabledTests();
 
   group('the error code is what drives the copy, never the message string', () {

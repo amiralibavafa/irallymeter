@@ -437,12 +437,10 @@ class _ConflictView extends ConsumerWidget {
           colour: AppColors.warn,
           // deviceName and lastSeen are all the server sends, deliberately:
           // enough to recognise your own phone, not enough to profile it.
-          message: other == null
-              ? 'Another device is currently signed in.'
-              : other.lastSeen == null
-                  ? 'Signed in on ${other.deviceName}.'
-                  : 'Signed in on ${other.deviceName}, last used '
-                      '${_ago(other.lastSeen!)}.',
+          // ⚠ Either field can be null on the wire, so all four combinations are
+          // spelled out in _conflictLine rather than interpolated blindly. This
+          // block used to render the literal text 'Signed in on null'.
+          message: _conflictLine(other),
         ),
         const SizedBox(height: 24),
         AccountCta(
@@ -467,6 +465,26 @@ class _ConflictView extends ConsumerWidget {
         _noticeFor(state),
       ],
     );
+  }
+
+  /// The one line telling a driver which phone is holding their account.
+  ///
+  /// ⚠ Both fields are nullable on the wire. A device registered without a name
+  /// comes back as `{"deviceName": null, "lastSeen": "..."}` — measured against the
+  /// live backend — and the previous version interpolated that straight into
+  /// "Signed in on null" while also losing the last-used time entirely.
+  static String _conflictLine(ConflictingDevice? other) {
+    if (other == null) return 'Another device is currently signed in.';
+    final String? name = other.deviceName;
+    final DateTime? seen = other.lastSeen;
+    if (name != null && seen != null) {
+      return 'Signed in on $name, last used ${_ago(seen)}.';
+    }
+    if (name != null) return 'Signed in on $name.';
+    if (seen != null) {
+      return 'Another device is currently signed in, last used ${_ago(seen)}.';
+    }
+    return 'Another device is currently signed in.';
   }
 
   static String _ago(DateTime when) {

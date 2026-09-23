@@ -368,7 +368,13 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
   Future<void> checkPayment() => _claimAfterPayment();
 
   Future<void> _claimAfterPayment() async {
-    final String? token = _paymentToken;
+    // ⚠⚠ THE STORED TOKEN IS THE WHOLE POINT OF THIS LINE. `_paymentToken` is memory
+    // only, and on iOS the app is routinely TERMINATED while the user is at the
+    // gateway — so on the one path that matters most it is null. This used to
+    // `return` silently: no busy state, no error, no navigation, while the server
+    // had already banked the payment and activated the subscription. The button was
+    // dead and said nothing.
+    final String? token = _paymentToken ?? await _repository.readPaymentToken();
     if (token == null) return;
     state = state.copyWith(busy: true, clearError: true);
     try {
@@ -386,6 +392,7 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
       // that counts. A fresh token comes back so a slow payment cannot strand the user
       // behind one that expired at the gateway.
       _paymentToken = result.paymentToken ?? token;
+      unawaited(_repository.savePaymentToken(_paymentToken!));
       state = state.copyWith(
         step: AccountStep.membership,
         busy: false,
@@ -429,6 +436,10 @@ class AccountFlowController extends StateNotifier<AccountFlowState> {
       case VerifyNext.paymentRequired:
         // The token is what makes the membership screen able to do anything at all.
         _paymentToken = result.paymentToken;
+        // Written to secure storage too, so a kill at the gateway does not strand a
+        // user who has already paid. Deleted again the moment a session exists.
+        final String? issued = result.paymentToken;
+        if (issued != null) unawaited(_repository.savePaymentToken(issued));
         state = state.copyWith(
           step: AccountStep.membership,
           busy: false,
