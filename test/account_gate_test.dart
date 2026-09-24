@@ -15,6 +15,7 @@ import 'package:irallymeter/features/account/data/api_client.dart';
 import 'package:irallymeter/features/account/data/secure_store.dart';
 import 'package:irallymeter/features/account/domain/entitlement.dart';
 import 'package:irallymeter/features/account/domain/monotonic_clock.dart';
+import 'package:irallymeter/features/account/presentation/account_flow_screen.dart';
 import 'package:irallymeter/features/account/presentation/account_gate.dart';
 import 'package:irallymeter/features/account/presentation/providers/account_providers.dart';
 
@@ -115,6 +116,54 @@ void main() {
         ),
       );
   }
+
+  group('⚠⚠ REGRESSION 1.0.1 — entitlement bound to the wrong identifier', () {
+    // WHAT THE USER ACTUALLY EXPERIENCED. The backend signed the blob with
+    // `device.id` (the devices table PRIMARY KEY) while this app verifies `did`
+    // against its INSTALLATION UUID. Every login, payment claim and force-login
+    // succeeded server-side, saved a session, re-ran the gate — and the gate refused
+    // the blob as "bound to another handset" and returned the login surface.
+    //
+    // Nothing crashed and nothing was logged, so three separate buttons looked
+    // completely dead while the server had already done the work.
+
+    testWidgets('a blob carrying the DB row id does NOT reach the rally computer',
+        (WidgetTester tester) async {
+      // The blob's `did` is kFixtureDeviceId; the handset reports the DB primary key
+      // instead, which is exactly the mismatch that shipped.
+      store
+        ..seed(SecureKeys.installationId, '0c43ffad-9c93-41b5-a00b-44f7f50d40ff')
+        ..seed(SecureKeys.refreshToken, 'refresh-token')
+        ..seed(
+          SecureKeys.session,
+          sessionJson(
+            entitlement: kBackendBlob,
+            subscriptionExpiresAt: '2026-10-08T12:00:00.000Z',
+          ),
+        );
+
+      await pumpGate(tester, wallClock: DateTime.utc(2026, 9, 20));
+
+      // Refused, as designed — a bad blob must never be a fallback.
+      expect(find.byKey(kRallyComputer), findsNothing);
+      // ⚠ AND THE REFUSAL MUST BE VISIBLE. The failure mode being pinned is not
+      // "denied", it is "denied silently": the user must land on a real screen they
+      // can act on rather than a dead surface that looks like the tap did nothing.
+      expect(find.byType(AccountFlowScreen), findsOneWidget);
+    });
+
+    testWidgets(
+        '⇒ and once the entitlement carries the INSTALLATION UUID, the same flow '
+        'admits', (WidgetTester tester) async {
+      // The other half, without which the test above would pass just as happily if
+      // the gate refused everything. This is the state the fixed backend produces.
+      seedValidSession();
+
+      await pumpGate(tester, wallClock: DateTime.utc(2026, 9, 20));
+
+      expect(find.byKey(kRallyComputer), findsOneWidget);
+    });
+  });
 
   group('⚠ the offline invariant', () {
     testWidgets(

@@ -74,6 +74,38 @@ void main() {
       expect(result.verdict, EntitlementVerdict.wrongDevice);
     });
 
+    test(
+        '⚠⚠ REGRESSION 1.0.1: a blob carrying the DB ROW ID instead of the '
+        'installation UUID is refused', () async {
+      // THE SHIPPED BUG, pinned from the client side.
+      //
+      // `irallymeter-api` signed the entitlement with `device.id` — the devices table
+      // PRIMARY KEY — while this verifier compares `did` against the app's persistent
+      // INSTALLATION UUID (`devices.device_id`). Both are uuids, so nothing looked
+      // wrong; they are simply different columns on the same row.
+      //
+      // The consequence was not a visible error. The gate treats a blob that exists
+      // and does not verify as a refusal, so every successful login, payment claim and
+      // force-login was thrown away and the user was returned to the login screen —
+      // three buttons that appeared completely dead while the server had already done
+      // the work.
+      //
+      // The fixture blob's `did` IS the installation uuid, so verifying it against a
+      // DIFFERENT uuid reproduces exactly what the device saw.
+      const String dbRowPrimaryKey = '0c43ffad-9c93-41b5-a00b-44f7f50d40ff';
+      expect(dbRowPrimaryKey, isNot(kFixtureDeviceId),
+          reason: 'the two columns must differ or this proves nothing');
+
+      final EntitlementResult result = await verifier.verify(
+        blob: kBackendBlob,
+        deviceId: dbRowPrimaryKey,
+        now: kFixtureIssuedAt.add(const Duration(days: 1)),
+      );
+
+      expect(result.verdict, EntitlementVerdict.wrongDevice);
+      expect(result.isValid, isFalse);
+    });
+
     test('is refused when a single payload byte is changed', () async {
       final List<String> parts = kBackendBlob.split('.');
       final Map<String, dynamic> payload =
